@@ -1,0 +1,9 @@
+backend/src/routes/.gitkeep
+
+backend/src/controllers/.gitkeep
+
+backend/src/middleware/.gitkeep
+
+backend/src/db/.gitkeep
+
+frontend/.gitkeep
