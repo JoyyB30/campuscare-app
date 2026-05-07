@@ -1,26 +1,31 @@
 const jwt = require('jsonwebtoken');
 
-// Verify if the user is logged in
+// First Gate: Checks if the user is logged in
 exports.verifyToken = (req, res, next) => {
-    const token = req.header('Authorization');
-    if (!token) return res.status(401).json({ message: 'Access Denied: No Token Provided' });
+    const authHeader = req.header('Authorization');
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return res.status(401).json({ message: "Access Denied. No token provided." });
+    }
+
+    const token = authHeader.split(' ')[1];
 
     try {
-        // Using the secret you set in your .env
         const verified = jwt.verify(token, process.env.JWT_SECRET);
-        req.user = verified; 
+        req.user = verified; // Contains { id, role }
         next();
     } catch (err) {
-        res.status(400).json({ message: 'Invalid Token' });
+        res.status(400).json({ message: "Invalid Token" });
     }
 };
 
-// RBAC: Logic to check user roles (Community Member, Manager, Staff)
-exports.authorizeRoles = (...roles) => {
+// Second Gate: Checks if the user's role is allowed
+exports.authorizeRoles = (...allowedRoles) => {
     return (req, res, next) => {
-        if (!roles.includes(req.user.role)) {
+        // If the user's role isn't in the list of allowed roles, block them
+        if (!req.user || !allowedRoles.includes(req.user.role)) {
             return res.status(403).json({ 
-                message: `Forbidden: ${req.user.role} role does not have access here.` 
+                error: "Access Denied",
+                message: `Required roles: [${allowedRoles}]. Your role: ${req.user?.role}`
             });
         }
         next();
