@@ -2,17 +2,16 @@ const express = require('express');
 const cors = require('cors');
 require('dotenv').config();
 
-// 1. Import your Auth Routes
 const authRoutes = require('./src/routes/authRoutes'); 
+const issueRoutes = require('./src/routes/issueRoutes');
 
 const app = express();
 
 app.use(cors());
 app.use(express.json());
 
-// 2. Connect the routes to a URL path
-// This means all routes in authRoutes will start with /api/auth
-app.use('/api/auth', authRoutes); 
+app.use('/api/auth', authRoutes);
+app.use('/api/issues', issueRoutes); 
 
 app.get('/', (req, res) => {
     res.send('CampusCare API is officially running!');
