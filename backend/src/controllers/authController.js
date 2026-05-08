@@ -78,7 +78,7 @@ exports.logout = async (req, res) => {
     res.status(200).json({ message: "Logged out successfully" });
 };
 
-// 4. FORGOT PASSWORD (Updated to use Username)
+// 4. FORGOT PASSWORD 
 exports.forgotPassword = async (req, res) => {
     const { username } = req.body; 
     try {
