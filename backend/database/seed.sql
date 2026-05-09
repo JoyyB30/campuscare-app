@@ -24,3 +24,16 @@ VALUES
 ('Library', 'Ground', 'L1', 'Main Area', 'indoor', 'Study Area'),
 ('Cafeteria', 'Ground', 'C1', 'Food Court', 'indoor', 'Dining Area'),
 ('Parking Area', 'Outdoor', 'P1', 'East Side', 'outdoor', 'Student Parking');
+
+-- Seed notifications
+
+INSERT INTO notifications (
+    user_id,
+    ticket_id,
+    notification_type,
+    message,
+    is_read
+)
+VALUES 
+(30, 2, 'assignment', 'You have been assigned ticket #2.', FALSE),
+(33, 2, 'assignment', 'You have been assigned ticket #2.', FALSE);
