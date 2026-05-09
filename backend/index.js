@@ -4,6 +4,7 @@ require('dotenv').config();
 
 const authRoutes = require('./src/routes/authRoutes'); 
 const issueRoutes = require('./src/routes/issueRoutes');
+const userRoutes = require('./src/routes/userRoutes');
 
 const app = express();
 
@@ -12,6 +13,7 @@ app.use(express.json());
 
 app.use('/api/auth', authRoutes);
 app.use('/api/issues', issueRoutes); 
+
 
 app.get('/', (req, res) => {
     res.send('CampusCare API is officially running!');
