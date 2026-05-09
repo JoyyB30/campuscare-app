@@ -44,6 +44,22 @@ router.put(
   issueController.updateIssueStatus
 );
 
+// Facility manager assigns issue to worker
+router.put(
+  '/:id/assign',
+  verifyToken,
+  authorizeRoles('facility_manager'),
+  issueController.assignIssue
+);
+
+// Facility manager closes issue
+router.put(
+  '/:id/close',
+  verifyToken,
+  authorizeRoles('facility_manager'),
+  issueController.closeIssue
+);
+
 // Facility manager deletes issue
 router.delete(
   '/:id',

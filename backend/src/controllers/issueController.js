@@ -1,5 +1,4 @@
 const db = require('../db');
-
 const { uploadToCloudinary } = require('../config/cloudinary');
 
 // 1. Create a new issue
@@ -135,8 +134,84 @@ exports.deleteIssue = async (req, res) => {
   }
 };
 
-  // 7. Add comment to issue
-module.exports.addComment = async (req, res) => {
+// 7. Assign issue to worker
+exports.assignIssue = async (req, res) => {
+  const { id } = req.params;
+  const { assigned_to } = req.body;
+
+  if (!assigned_to) {
+    return res.status(400).json({
+      error: "Missing required field",
+      message: "assigned_to is required"
+    });
+  }
+
+  try {
+    const worker = await db.query(
+      `SELECT user_id, role FROM users WHERE user_id = $1`,
+      [assigned_to]
+    );
+
+    if (worker.rows.length === 0) {
+      return res.status(404).json({ error: "Worker not found" });
+    }
+
+    if (worker.rows[0].role !== 'worker') {
+      return res.status(400).json({
+        error: "Invalid assignment",
+        message: "Issue can only be assigned to a user with role worker"
+      });
+    }
+
+    const result = await db.query(
+      `UPDATE tickets
+       SET assigned_to = $1, status = 'assigned', updated_at = NOW()
+       WHERE ticket_id = $2
+       RETURNING *`,
+      [assigned_to, id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Issue not found" });
+    }
+
+    res.status(200).json({
+      message: "Issue assigned successfully",
+      issue: result.rows[0]
+    });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to assign issue", detail: err.message });
+  }
+};
+
+// 8. Close resolved issue
+exports.closeIssue = async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const result = await db.query(
+      `UPDATE tickets
+       SET status = 'closed', updated_at = NOW()
+       WHERE ticket_id = $1
+       RETURNING *`,
+      [id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Issue not found" });
+    }
+
+    res.status(200).json({
+      message: "Issue closed successfully",
+      issue: result.rows[0]
+    });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to close issue", detail: err.message });
+  }
+};
+
+// 9. Add comment to issue
+exports.addComment = async (req, res) => {
   const { id } = req.params;
   const { comment_text } = req.body;
   const user_id = req.user.id;
@@ -168,8 +243,8 @@ module.exports.addComment = async (req, res) => {
   }
 };
 
-// 8. Upload completion photo
-module.exports.uploadCompletionPhoto = async (req, res) => {
+// 10. Upload completion photo
+exports.uploadCompletionPhoto = async (req, res) => {
   const { id } = req.params;
   const user_id = req.user.id;
 
@@ -205,8 +280,8 @@ module.exports.uploadCompletionPhoto = async (req, res) => {
   }
 };
 
-// 9. Get notifications for logged-in user
-module.exports.getMyNotifications = async (req, res) => {
+// 11. Get notifications for logged-in user
+exports.getMyNotifications = async (req, res) => {
   const user_id = req.user.id;
 
   try {
@@ -226,8 +301,8 @@ module.exports.getMyNotifications = async (req, res) => {
   }
 };
 
-// 10. Mark notification as read
-module.exports.markNotificationAsRead = async (req, res) => {
+// 12. Mark notification as read
+exports.markNotificationAsRead = async (req, res) => {
   const { notificationId } = req.params;
 
   try {
