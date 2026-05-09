@@ -1,3 +1,4 @@
+const upload = require('../middleware/uploadMiddleware');
 const express = require('express');
 const router = express.Router();
 
@@ -51,4 +52,30 @@ router.delete(
   issueController.deleteIssue
 );
 
+
+router.post(
+  '/:id/comments',
+  verifyToken,
+  issueController.addComment
+);
+
+router.post(
+  '/:id/photo',
+  verifyToken,
+  authorizeRoles('worker'),
+  upload.single('photo'),
+  issueController.uploadCompletionPhoto
+);
+
+router.get(
+  '/notifications/my',
+  verifyToken,
+  issueController.getMyNotifications
+);
+
+router.put(
+  '/notifications/:notificationId/read',
+  verifyToken,
+  issueController.markNotificationAsRead
+);
 module.exports = router;

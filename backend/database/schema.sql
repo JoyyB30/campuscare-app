@@ -30,3 +30,41 @@ CREATE TABLE IF NOT EXISTS tickets (
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW()
 );
+
+CREATE TABLE IF NOT EXISTS comments (
+    comment_id SERIAL PRIMARY KEY,
+    comment_text VARCHAR(255) NOT NULL,
+    created_at TIMESTAMP DEFAULT NOW(),
+    ticket_id INT REFERENCES tickets(ticket_id) ON DELETE CASCADE,
+    user_id INT REFERENCES users(user_id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS photos (
+    photo_id SERIAL PRIMARY KEY,
+    photo_url VARCHAR(500) NOT NULL,
+    photo_type VARCHAR(20) CHECK (photo_type IN ('issue', 'completion')),
+    uploaded_at TIMESTAMP DEFAULT NOW(),
+    ticket_id INT REFERENCES tickets(ticket_id) ON DELETE CASCADE,
+    uploaded_by INT REFERENCES users(user_id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS notifications (
+    notification_id SERIAL PRIMARY KEY,
+    user_id INT REFERENCES users(user_id) ON DELETE CASCADE,
+    ticket_id INT REFERENCES tickets(ticket_id) ON DELETE CASCADE,
+    notification_type VARCHAR(30) CHECK (notification_type IN ('status_change', 'assignment', 'completion')),
+    message VARCHAR(255) NOT NULL,
+    is_read BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS activity_logs (
+    log_id SERIAL PRIMARY KEY,
+    user_id INT REFERENCES users(user_id) ON DELETE SET NULL,
+    action VARCHAR(100) NOT NULL,
+    entity_type VARCHAR(100),
+    entity_id INT,
+    details VARCHAR(100),
+    ip_address VARCHAR(45),
+    timestamp TIMESTAMP DEFAULT NOW()
+);
