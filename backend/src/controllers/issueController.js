@@ -3,8 +3,9 @@ const { uploadToCloudinary } = require('../config/cloudinary');
 
 // 1. Create a new issue
 exports.createIssue = async (req, res) => {
-  const { title, description, location_id, category_id, photo_url } = req.body;
+  const { title, description, location_id, category_id } = req.body;
   const created_by = req.user.id;
+  let photo_url = null;
 
   if (!title || !description || !location_id || !category_id) {
     return res.status(400).json({
@@ -14,12 +15,16 @@ exports.createIssue = async (req, res) => {
   }
 
   try {
+    if (req.file) {
+      photo_url = await uploadToCloudinary(req.file.buffer, 'issue_photos');
+    }
+
     const result = await db.query(
       `INSERT INTO tickets 
        (title, description, location_id, category_id, photo_url, created_by, status, priority)
        VALUES ($1, $2, $3, $4, $5, $6, 'pending', 'medium')
        RETURNING *`,
-      [title, description, location_id, category_id, photo_url || null, created_by]
+      [title, description, location_id, category_id, photo_url, created_by]
     );
 
     res.status(201).json({

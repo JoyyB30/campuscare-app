@@ -10,6 +10,7 @@ router.post(
   '/',
   verifyToken,
   authorizeRoles('community_member'),
+  upload.single('photo'),
   issueController.createIssue
 );
 
@@ -27,6 +28,19 @@ router.get(
   verifyToken,
   authorizeRoles('community_member'),
   issueController.getMyIssues
+);
+
+// Notifications routes must come before /:id
+router.get(
+  '/notifications/my',
+  verifyToken,
+  issueController.getMyNotifications
+);
+
+router.put(
+  '/notifications/:notificationId/read',
+  verifyToken,
+  issueController.markNotificationAsRead
 );
 
 // Get one issue by ID
@@ -68,13 +82,15 @@ router.delete(
   issueController.deleteIssue
 );
 
-
+// Worker adds comment to issue
 router.post(
   '/:id/comments',
   verifyToken,
+  authorizeRoles('worker'),
   issueController.addComment
 );
 
+// Worker uploads completion photo
 router.post(
   '/:id/photo',
   verifyToken,
@@ -83,15 +99,4 @@ router.post(
   issueController.uploadCompletionPhoto
 );
 
-router.get(
-  '/notifications/my',
-  verifyToken,
-  issueController.getMyNotifications
-);
-
-router.put(
-  '/notifications/:notificationId/read',
-  verifyToken,
-  issueController.markNotificationAsRead
-);
 module.exports = router;
