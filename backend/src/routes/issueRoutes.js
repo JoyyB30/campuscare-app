@@ -1,11 +1,11 @@
-const upload = require('../middleware/uploadMiddleware');
 const express = require('express');
 const router = express.Router();
 
+const upload = require('../middleware/uploadMiddleware');
 const issueController = require('../controllers/issueController');
 const { verifyToken, authorizeRoles } = require('../middleware/authMiddleware');
 
-// Community member creates an issue
+// Community Member: submit issue
 router.post(
   '/',
   verifyToken,
@@ -14,7 +14,8 @@ router.post(
   issueController.createIssue
 );
 
-// Facility manager views all issues
+// Facility Manager: view all issues, with optional filters
+// Example: /api/issues?status=pending&priority=high
 router.get(
   '/',
   verifyToken,
@@ -22,7 +23,7 @@ router.get(
   issueController.getAllIssues
 );
 
-// Community member views their own issues
+// Community Member: view own submitted issues
 router.get(
   '/my',
   verifyToken,
@@ -30,7 +31,15 @@ router.get(
   issueController.getMyIssues
 );
 
-// Notifications routes must come before /:id
+// Worker: view assigned issues
+router.get(
+  '/assigned/my',
+  verifyToken,
+  authorizeRoles('worker'),
+  issueController.getAssignedIssues
+);
+
+// Notifications
 router.get(
   '/notifications/my',
   verifyToken,
@@ -43,14 +52,14 @@ router.put(
   issueController.markNotificationAsRead
 );
 
-// Get one issue by ID
+// Get issue details
 router.get(
   '/:id',
   verifyToken,
   issueController.getIssueById
 );
 
-// Facility manager or worker updates status
+// Facility Manager or Worker: update status
 router.put(
   '/:id/status',
   verifyToken,
@@ -58,7 +67,7 @@ router.put(
   issueController.updateIssueStatus
 );
 
-// Facility manager assigns issue to worker
+// Facility Manager: assign issue to worker
 router.put(
   '/:id/assign',
   verifyToken,
@@ -66,7 +75,15 @@ router.put(
   issueController.assignIssue
 );
 
-// Facility manager closes issue
+// Facility Manager: update issue priority
+router.put(
+  '/:id/priority',
+  verifyToken,
+  authorizeRoles('facility_manager'),
+  issueController.updateIssuePriority
+);
+
+// Facility Manager: close resolved issue
 router.put(
   '/:id/close',
   verifyToken,
@@ -74,15 +91,7 @@ router.put(
   issueController.closeIssue
 );
 
-// Facility manager deletes issue
-router.delete(
-  '/:id',
-  verifyToken,
-  authorizeRoles('facility_manager'),
-  issueController.deleteIssue
-);
-
-// Worker adds comment to issue
+// Worker: add comment to assigned issue
 router.post(
   '/:id/comments',
   verifyToken,
@@ -90,13 +99,21 @@ router.post(
   issueController.addComment
 );
 
-// Worker uploads completion photo
+// Worker: upload completion photo for assigned issue
 router.post(
   '/:id/photo',
   verifyToken,
   authorizeRoles('worker'),
   upload.single('photo'),
   issueController.uploadCompletionPhoto
+);
+
+// Facility Manager: delete issue
+router.delete(
+  '/:id',
+  verifyToken,
+  authorizeRoles('facility_manager'),
+  issueController.deleteIssue
 );
 
 module.exports = router;

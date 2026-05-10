@@ -1,9 +1,10 @@
 const express = require('express');
 const router = express.Router();
+
 const userController = require('../controllers/userController');
 const { verifyToken, authorizeRoles } = require('../middleware/authMiddleware');
 
-// Facility Manager routes
+// Facility Manager: List worker accounts
 router.get(
   '/manager/workers',
   verifyToken,
@@ -11,14 +12,15 @@ router.get(
   userController.getAllWorkers
 );
 
+// Facility Manager: Activate/deactivate worker account only
 router.put(
   '/manager/workers/:id/status',
   verifyToken,
   authorizeRoles('facility_manager'),
-  userController.toggleUserStatus
+  userController.toggleWorkerStatus
 );
 
-// Admin routes
+// Admin: List all users
 router.get(
   '/admin/users',
   verifyToken,
@@ -26,6 +28,7 @@ router.get(
   userController.getAllUsers
 );
 
+// Admin: Activate/deactivate any user account
 router.put(
   '/admin/users/:id/status',
   verifyToken,
