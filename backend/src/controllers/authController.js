@@ -131,7 +131,7 @@ exports.login = async (req, res) => {
         role: user.role
       },
       process.env.JWT_SECRET,
-      { expiresIn: '2h' }
+      { expiresIn: '30d' }
     );
 
     res.status(200).json({

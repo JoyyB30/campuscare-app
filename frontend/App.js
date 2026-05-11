@@ -11,7 +11,7 @@ export default function App() {
     // TEMPORARY ONLY FOR TESTING FM SCREENS.
     // Remove this later when the real login screen is connected.
     saveAuth(
-      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6Miwicm9sZSI6ImZhY2lsaXR5X21hbmFnZXIiLCJpYXQiOjE3Nzg1MjI1MzIsImV4cCI6MTc3ODUyOTczMn0.vpMU--DOCileO8e3smdG7Y9jlNjJoCqdelW9w3HOiRE',
+      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6NSwicm9sZSI6ImZhY2lsaXR5X21hbmFnZXIiLCJpYXQiOjE3Nzg1MzY2ODEsImV4cCI6MTc4MTEyODY4MX0.WIYgFFP8QFlvE_iY_4imP95f_wNNqjSt5Tj50jScjz8',
       {
         id: 4,
         role: 'facility_manager',
