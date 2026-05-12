@@ -1,44 +1,89 @@
+// src/screens/LoginScreen.js
 import React, { useState } from 'react';
 import {
   View,
   Text,
-  TextInput,
-  TouchableOpacity,
   StyleSheet,
+  ScrollView,
+  KeyboardAvoidingView,
+  Platform,
+  TouchableOpacity,
+  TextInput,
   Alert,
   ActivityIndicator,
   SafeAreaView,
   StatusBar,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
+  Modal,
+  Linking,
 } from 'react-native';
-
 import { login } from '../services/api';
+
+// Theme Colors
+const colors = {
+  primary: '#0B1F3A',
+  secondary: '#F0A500',
+  accent: '#0A9396',
+  background: '#F8F4EF',
+  surface: '#FFFFFF',
+  text: '#0B1F3A',
+  textSecondary: '#64748B',
+  border: '#E2E8F0',
+  danger: '#DC2626',
+  success: '#10B981',
+};
+
+const spacing = {
+  xs: 4,
+  sm: 8,
+  md: 16,
+  lg: 24,
+  xl: 32,
+  xxl: 48,
+};
+
+const typography = {
+  h1: { fontSize: 32, fontWeight: '900', lineHeight: 40 },
+  h2: { fontSize: 24, fontWeight: '800', lineHeight: 32 },
+  h3: { fontSize: 20, fontWeight: '700', lineHeight: 28 },
+  body: { fontSize: 16, fontWeight: '400', lineHeight: 24 },
+  bodySmall: { fontSize: 14, fontWeight: '400', lineHeight: 20 },
+  caption: { fontSize: 12, fontWeight: '500', lineHeight: 16 },
+};
+
+const radius = {
+  sm: 8,
+  md: 14,
+  lg: 20,
+  xl: 30,
+  round: 40,
+};
 
 export default function LoginScreen({ navigation }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
-  const [showPass, setShowPass] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [forgotModalVisible, setForgotModalVisible] = useState(false);
+  const [resetEmail, setResetEmail] = useState('');
+  const [resetLoading, setResetLoading] = useState(false);
+  const [resetMessage, setResetMessage] = useState('');
 
   const handleLogin = async () => {
     if (!email.trim()) {
-      Alert.alert('Missing field', 'Please enter your email address.');
+      Alert.alert('Missing Field', 'Please enter your email address.');
       return;
     }
-
-    if (!password) {
-      Alert.alert('Missing field', 'Please enter your password.');
+    if (!password.trim()) {
+      Alert.alert('Missing Field', 'Please enter your password.');
       return;
     }
 
     setLoading(true);
-
     try {
       const data = await login(email.trim().toLowerCase(), password);
       const role = data.user?.role;
 
+      // Role-based navigation
       if (role === 'facility_manager') {
         navigation.replace('FMApp');
       } else if (role === 'admin') {
@@ -48,103 +93,266 @@ export default function LoginScreen({ navigation }) {
       } else if (role === 'worker') {
         navigation.replace('WorkerApp');
       } else {
-        Alert.alert('Error', 'Unknown role. Please contact your administrator.');
+        Alert.alert('Login Failed', 'Unknown user role');
       }
     } catch (err) {
-      Alert.alert('Login Failed', err.message || 'Invalid email or password.');
+      Alert.alert('Login Failed', err.message || 'Invalid credentials');
     } finally {
       setLoading(false);
     }
   };
 
+  const handleForgotPassword = async () => {
+    if (!resetEmail.trim()) {
+      Alert.alert('Missing Field', 'Please enter your email address.');
+      return;
+    }
+
+    setResetLoading(true);
+    setResetMessage('');
+    
+    try {
+      // Call your backend forgot-password endpoint
+      const response = await fetch(`http://${getLaptopIp()}:5000/api/auth/forgot-password`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email: resetEmail.trim().toLowerCase() }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || data.error || 'Failed to send reset email');
+      }
+
+      // Show preview URL for Ethereal email testing
+      const previewMessage = data.preview 
+        ? `Reset email sent!\n\nPreview URL: ${data.preview}\n\nCheck this link to see the reset email (Ethereal test inbox).`
+        : `If an account exists with ${resetEmail}, you will receive password reset instructions.`;
+
+      Alert.alert(
+        'Reset Email Sent',
+        previewMessage,
+        [
+          { 
+            text: 'OK', 
+            onPress: () => {
+              setForgotModalVisible(false);
+              setResetEmail('');
+              setResetMessage('');
+            }
+          }
+        ]
+      );
+    } catch (err) {
+      Alert.alert('Error', err.message || 'Failed to send reset email');
+    } finally {
+      setResetLoading(false);
+    }
+  };
+
+  // Helper to get laptop IP (same logic as your api.js)
+  const getLaptopIp = () => {
+    return '192.168.0.90'; // Update with your actual IP
+  };
+
+  const openTermsLink = () => {
+    Linking.openURL('https://www.campuscaredemo.com/terms');
+  };
+
+  const openPrivacyLink = () => {
+    Linking.openURL('https://www.campuscaredemo.com/privacy');
+  };
+
   return (
     <SafeAreaView style={styles.safe}>
-      <StatusBar barStyle="light-content" backgroundColor="#0B1F3A" />
-
+      <StatusBar barStyle="light-content" backgroundColor={colors.primary} />
       <KeyboardAvoidingView
-        style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={{ flex: 1 }}
       >
         <ScrollView
           contentContainerStyle={styles.scroll}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
+          {/* Header */}
           <View style={styles.header}>
-            <View style={styles.deco1} />
-            <View style={styles.deco2} />
-
-            <View style={styles.badge}>
-              <Text style={styles.badgeText}>🏛 CAMPUSCARE</Text>
+            <View style={styles.logoCircle}>
+              <Text style={styles.logoEmoji}>🏫</Text>
             </View>
-
-            <Text style={styles.headline}>Welcome back</Text>
-            <Text style={styles.sub}>Sign in to your account to continue</Text>
+            <Text style={styles.appName}>CampusCare</Text>
+            <Text style={styles.tagline}>Report • Track • Resolve</Text>
           </View>
 
-          <View style={styles.form}>
-            <Text style={styles.label}>Email address</Text>
+          {/* Form Card */}
+          <View style={styles.formCard}>
+            <Text style={styles.formTitle}>Welcome Back</Text>
+            <Text style={styles.formSubtitle}>Sign in to your account</Text>
 
-            <TextInput
-              style={styles.input}
-              placeholder="you@example.com"
-              placeholderTextColor="#CBD5E1"
-              value={email}
-              onChangeText={setEmail}
-              keyboardType="email-address"
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-
-            <Text style={styles.label}>Password</Text>
-
-            <View style={styles.passwordWrap}>
+            {/* Email Input */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Email Address</Text>
               <TextInput
-                style={styles.passwordInput}
-                placeholder="••••••••"
-                placeholderTextColor="#CBD5E1"
-                value={password}
-                onChangeText={setPassword}
-                secureTextEntry={!showPass}
+                style={styles.input}
+                placeholder="Enter you Email"
+                placeholderTextColor={colors.textSecondary}
+                value={email}
+                onChangeText={setEmail}
                 autoCapitalize="none"
+                keyboardType="email-address"
+                returnKeyType="next"
+                editable={!loading}
               />
-
-              <TouchableOpacity
-                style={styles.eyeBtn}
-                onPress={() => setShowPass(v => !v)}
-              >
-                <Text style={styles.eyeIcon}>{showPass ? '🙈' : '👁'}</Text>
-              </TouchableOpacity>
             </View>
 
+            {/* Password Input */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Password</Text>
+              <View style={styles.passwordWrap}>
+                <TextInput
+                  style={styles.passwordInput}
+                  placeholder="Enter your password"
+                  placeholderTextColor={colors.textSecondary}
+                  value={password}
+                  onChangeText={setPassword}
+                  secureTextEntry={!showPassword}
+                  returnKeyType="done"
+                  onSubmitEditing={handleLogin}
+                  editable={!loading}
+                />
+                <TouchableOpacity
+                  onPress={() => setShowPassword(!showPassword)}
+                  style={styles.eyeBtn}
+                  disabled={loading}
+                >
+                  <Text style={styles.eyeIcon}>{showPassword ? 'Hide' : 'Show'}</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            {/* Forgot Password Link */}
             <TouchableOpacity
-              style={[styles.loginBtn, loading && { opacity: 0.7 }]}
+              style={styles.forgotLink}
+              onPress={() => setForgotModalVisible(true)}
+              disabled={loading}
+            >
+              <Text style={styles.forgotLinkText}>Forgot Password?</Text>
+            </TouchableOpacity>
+
+            {/* Login Button */}
+            <TouchableOpacity
+              style={[styles.loginBtn, loading && styles.loginBtnDisabled]}
               onPress={handleLogin}
               disabled={loading}
-              activeOpacity={0.85}
             >
               {loading ? (
-                <ActivityIndicator color="#fff" />
+                <ActivityIndicator color="#FFFFFF" />
               ) : (
-                <Text style={styles.loginBtnText}>Sign In →</Text>
+                <Text style={styles.loginBtnText}>Sign In</Text>
               )}
             </TouchableOpacity>
 
-            <View style={styles.divider}>
+            {/* OR Divider */}
+            <View style={styles.dividerRow}>
               <View style={styles.dividerLine} />
-              <Text style={styles.dividerText}>New to CampusCare?</Text>
+              <Text style={styles.dividerText}>OR</Text>
               <View style={styles.dividerLine} />
             </View>
 
+            {/* Register Link */}
             <TouchableOpacity
-              style={styles.registerBtn}
+              style={styles.registerLink}
               onPress={() => navigation.navigate('Register')}
+              disabled={loading}
             >
-              <Text style={styles.registerBtnText}>Create an Account</Text>
+              <Text style={styles.registerLinkText}>
+                Don't have an account?{' '}
+                <Text style={styles.registerLinkHighlight}>Sign Up</Text>
+              </Text>
             </TouchableOpacity>
+
+            {/* Terms and Privacy Links */}
+            <View style={styles.legalLinks}>
+              <TouchableOpacity onPress={openTermsLink}>
+                <Text style={styles.legalLinkText}>Terms of Service</Text>
+              </TouchableOpacity>
+              <Text style={styles.legalSeparator}>•</Text>
+              <TouchableOpacity onPress={openPrivacyLink}>
+                <Text style={styles.legalLinkText}>Privacy Policy</Text>
+              </TouchableOpacity>
+            </View>
           </View>
+
+          {/* Footer */}
+          <Text style={styles.footer}>CampusCare © 2026</Text>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* Forgot Password Modal */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={forgotModalVisible}
+        onRequestClose={() => setForgotModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Reset Password</Text>
+              <TouchableOpacity
+                onPress={() => setForgotModalVisible(false)}
+                style={styles.modalClose}
+              >
+                <Text style={styles.modalCloseText}>✕</Text>
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.modalDescription}>
+              Enter your email address and we'll send you instructions to reset your password.
+            </Text>
+
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Email Address</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Enter your email"
+                placeholderTextColor={colors.textSecondary}
+                value={resetEmail}
+                onChangeText={setResetEmail}
+                autoCapitalize="none"
+                keyboardType="email-address"
+                editable={!resetLoading}
+              />
+            </View>
+
+            {resetMessage ? (
+              <Text style={styles.resetMessage}>{resetMessage}</Text>
+            ) : null}
+
+            <TouchableOpacity
+              style={[styles.resetBtn, resetLoading && styles.resetBtnDisabled]}
+              onPress={handleForgotPassword}
+              disabled={resetLoading}
+            >
+              {resetLoading ? (
+                <ActivityIndicator color="#FFFFFF" />
+              ) : (
+                <Text style={styles.resetBtnText}>Send Reset Instructions</Text>
+              )}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.modalCancel}
+              onPress={() => setForgotModalVisible(false)}
+            >
+              <Text style={styles.modalCancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -152,183 +360,256 @@ export default function LoginScreen({ navigation }) {
 const styles = StyleSheet.create({
   safe: {
     flex: 1,
-    backgroundColor: '#0B1F3A',
+    backgroundColor: colors.primary,
   },
-
   scroll: {
     flexGrow: 1,
+    paddingBottom: spacing.xl,
   },
-
   header: {
-    backgroundColor: '#0B1F3A',
-    paddingHorizontal: 28,
-    paddingTop: 40,
-    paddingBottom: 40,
-    overflow: 'hidden',
+    alignItems: 'center',
+    paddingVertical: spacing.xl,
   },
-
-  deco1: {
-    position: 'absolute',
-    top: -50,
-    right: -50,
-    width: 200,
-    height: 200,
-    borderRadius: 100,
-    backgroundColor: 'rgba(240,165,0,0.12)',
+  logoCircle: {
+    width: 80,
+    height: 80,
+    borderRadius: radius.round,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: spacing.md,
   },
-
-  deco2: {
-    position: 'absolute',
-    bottom: -30,
-    left: -30,
-    width: 140,
-    height: 140,
-    borderRadius: 70,
-    backgroundColor: 'rgba(10,147,150,0.18)',
+  logoEmoji: {
+    fontSize: 40,
   },
-
-  badge: {
-    alignSelf: 'flex-start',
-    backgroundColor: 'rgba(240,165,0,0.2)',
-    borderWidth: 1,
-    borderColor: 'rgba(240,165,0,0.35)',
-    paddingHorizontal: 12,
-    paddingVertical: 5,
-    borderRadius: 8,
-    marginBottom: 20,
+  appName: {
+    ...typography.h1,
+    color: '#FFFFFF',
+    letterSpacing: -1,
   },
-
-  badgeText: {
-    color: '#F0A500',
-    fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 2,
+  tagline: {
+    ...typography.bodySmall,
+    color: 'rgba(255,255,255,0.7)',
+    fontWeight: '600',
+    marginTop: spacing.xs,
   },
-
-  headline: {
-    color: '#fff',
-    fontSize: 30,
-    fontWeight: '900',
-    marginBottom: 6,
-    zIndex: 1,
+  formCard: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.xl,
+    marginHorizontal: spacing.md,
+    padding: spacing.lg,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.2,
+    shadowRadius: 30,
+    elevation: 10,
   },
-
-  sub: {
-    color: 'rgba(255,255,255,0.55)',
-    fontSize: 14,
+  formTitle: {
+    ...typography.h2,
+    color: colors.primary,
+    marginBottom: spacing.xs,
   },
-
-  form: {
-    flex: 1,
-    backgroundColor: '#F8F4EF',
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    padding: 28,
-    paddingTop: 32,
+  formSubtitle: {
+    ...typography.bodySmall,
+    color: colors.textSecondary,
+    fontWeight: '600',
+    marginBottom: spacing.lg,
   },
-
+  inputGroup: {
+    marginBottom: spacing.md,
+  },
   label: {
-    fontSize: 12,
+    ...typography.caption,
+    color: colors.primary,
     fontWeight: '800',
-    color: '#64748B',
-    letterSpacing: 1,
+    marginBottom: spacing.sm,
     textTransform: 'uppercase',
-    marginBottom: 8,
-    marginTop: 4,
+    letterSpacing: 0.5,
   },
-
   input: {
-    backgroundColor: '#fff',
-    borderRadius: 14,
-    padding: 16,
-    fontSize: 15,
-    color: '#0B1F3A',
+    backgroundColor: '#F8FAFC',
     borderWidth: 1.5,
-    borderColor: '#E2E8F0',
-    marginBottom: 16,
-    shadowColor: '#0B1F3A',
-    shadowOpacity: 0.04,
-    shadowRadius: 6,
-    elevation: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    padding: spacing.md,
+    fontSize: 15,
+    color: colors.text,
   },
-
   passwordWrap: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#fff',
-    borderRadius: 14,
+    backgroundColor: '#F8FAFC',
     borderWidth: 1.5,
-    borderColor: '#E2E8F0',
-    marginBottom: 24,
-    shadowColor: '#0B1F3A',
-    shadowOpacity: 0.04,
-    shadowRadius: 6,
-    elevation: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
   },
-
   passwordInput: {
     flex: 1,
-    padding: 16,
+    padding: spacing.md,
     fontSize: 15,
-    color: '#0B1F3A',
+    color: colors.text,
   },
-
   eyeBtn: {
-    paddingHorizontal: 16,
+    paddingRight: spacing.md,
   },
-
   eyeIcon: {
     fontSize: 18,
   },
-
+  forgotLink: {
+    alignSelf: 'flex-end',
+    marginBottom: spacing.lg,
+  },
+  forgotLinkText: {
+    ...typography.caption,
+    color: colors.secondary,
+    fontWeight: '700',
+  },
   loginBtn: {
-    backgroundColor: '#0B1F3A',
-    borderRadius: 14,
-    paddingVertical: 17,
+    backgroundColor: colors.primary,
+    borderRadius: radius.md,
+    paddingVertical: spacing.md,
     alignItems: 'center',
-    marginBottom: 24,
-    shadowColor: '#0B1F3A',
-    shadowOpacity: 0.2,
-    shadowRadius: 12,
-    elevation: 4,
+    marginTop: spacing.sm,
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+    elevation: 5,
   },
-
+  loginBtnDisabled: {
+    opacity: 0.7,
+  },
   loginBtnText: {
-    color: '#fff',
+    color: '#FFFFFF',
     fontSize: 16,
-    fontWeight: '800',
+    fontWeight: '900',
   },
-
-  divider: {
+  dividerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 20,
-    gap: 10,
+    marginVertical: spacing.md,
   },
-
   dividerLine: {
     flex: 1,
     height: 1,
-    backgroundColor: '#E2E8F0',
+    backgroundColor: colors.border,
   },
-
   dividerText: {
-    fontSize: 12,
-    color: '#94A3B8',
+    ...typography.caption,
+    marginHorizontal: spacing.sm,
+    color: colors.textSecondary,
     fontWeight: '600',
   },
-
-  registerBtn: {
-    borderWidth: 2,
-    borderColor: '#0A9396',
-    borderRadius: 14,
-    paddingVertical: 15,
+  registerLink: {
+    alignItems: 'center',
+    paddingVertical: spacing.sm,
+  },
+  registerLinkText: {
+    ...typography.body,
+    color: colors.textSecondary,
+    fontWeight: '600',
+  },
+  registerLinkHighlight: {
+    color: colors.secondary,
+    fontWeight: '800',
+  },
+  legalLinks: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: spacing.md,
+    paddingTop: spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  legalLinkText: {
+    ...typography.caption,
+    color: colors.textSecondary,
+    fontWeight: '500',
+  },
+  legalSeparator: {
+    ...typography.caption,
+    color: colors.textSecondary,
+    marginHorizontal: spacing.sm,
+  },
+  footer: {
+    ...typography.caption,
+    color: 'rgba(255,255,255,0.4)',
+    textAlign: 'center',
+    marginTop: spacing.xl,
+    fontWeight: '700',
+  },
+  // Modal Styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
     alignItems: 'center',
   },
-
-  registerBtnText: {
-    color: '#0A9396',
-    fontSize: 15,
-    fontWeight: '800',
+  modalContent: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    padding: spacing.lg,
+    width: '85%',
+    maxWidth: 400,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.md,
+  },
+  modalTitle: {
+    ...typography.h3,
+    color: colors.primary,
+  },
+  modalClose: {
+    padding: spacing.sm,
+  },
+  modalCloseText: {
+    fontSize: 20,
+    color: colors.textSecondary,
+  },
+  modalDescription: {
+    ...typography.bodySmall,
+    color: colors.textSecondary,
+    marginBottom: spacing.lg,
+    lineHeight: 20,
+  },
+  resetMessage: {
+    ...typography.bodySmall,
+    color: colors.success,
+    marginBottom: spacing.md,
+    textAlign: 'center',
+  },
+  resetBtn: {
+    backgroundColor: colors.secondary,
+    borderRadius: radius.md,
+    paddingVertical: spacing.md,
+    alignItems: 'center',
+    marginTop: spacing.md,
+  },
+  resetBtnDisabled: {
+    opacity: 0.7,
+  },
+  resetBtnText: {
+    color: colors.primary,
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  modalCancel: {
+    alignItems: 'center',
+    paddingVertical: spacing.md,
+    marginTop: spacing.sm,
+  },
+  modalCancelText: {
+    ...typography.body,
+    color: colors.textSecondary,
+    fontWeight: '600',
   },
 });

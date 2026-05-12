@@ -1,75 +1,222 @@
-import React, { useState } from 'react';
+// src/screens/RegisterScreen.js
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
-  TextInput,
-  TouchableOpacity,
   StyleSheet,
+  ScrollView,
+  KeyboardAvoidingView,
+  Platform,
+  TouchableOpacity,
+  TextInput,
   Alert,
   ActivityIndicator,
   SafeAreaView,
   StatusBar,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
+  Linking,
 } from 'react-native';
+import { register, saveAuth } from '../services/api';
 
-import { register } from '../services/api';
+// Theme Colors
+const colors = {
+  primary: '#0B1F3A',
+  secondary: '#F0A500',
+  accent: '#0A9396',
+  background: '#F8F4EF',
+  surface: '#FFFFFF',
+  text: '#0B1F3A',
+  textSecondary: '#64748B',
+  border: '#E2E8F0',
+  danger: '#DC2626',
+  success: '#10B981',
+  warning: '#F59E0B',
+  weak: '#DC2626',
+  fair: '#F59E0B',
+  good: '#10B981',
+  strong: '#059669',
+};
 
-// The roles a user can pick when registering.
-// Admins and Facility Managers should be created by an admin in a real system,
-// but we include them here for demo/testing purposes.
+const spacing = {
+  xs: 4,
+  sm: 8,
+  md: 16,
+  lg: 24,
+  xl: 32,
+  xxl: 48,
+};
+
+const typography = {
+  h1: { fontSize: 32, fontWeight: '900', lineHeight: 40 },
+  h2: { fontSize: 24, fontWeight: '800', lineHeight: 32 },
+  h3: { fontSize: 20, fontWeight: '700', lineHeight: 28 },
+  body: { fontSize: 16, fontWeight: '400', lineHeight: 24 },
+  bodySmall: { fontSize: 14, fontWeight: '400', lineHeight: 20 },
+  caption: { fontSize: 12, fontWeight: '500', lineHeight: 16 },
+};
+
+const radius = {
+  sm: 8,
+  md: 14,
+  lg: 20,
+  xl: 30,
+  round: 40,
+};
+
 const ROLES = [
-  { value: 'community_member', label: '🎓  Community Member', desc: 'Submit and track issues' },
-  { value: 'worker',           label: '🔧  Worker',           desc: 'Handle assigned issues' },
-  { value: 'facility_manager', label: '🏛  Facility Manager', desc: 'Manage all issues' },
-  { value: 'admin',            label: '🛡  Admin',            desc: 'Manage all registered users' },
+  { value: 'community_member', label: '🎓 Community Member', desc: 'Submit and track issues' },
+  { value: 'worker', label: '🔧 Worker', desc: 'Handle assigned issues' },
+  { value: 'facility_manager', label: '🏛 Facility Manager', desc: 'Manage all issues' },
+  { value: 'admin', label: '🛡 Admin', desc: 'Manage all registered users' },
 ];
+
+// Password strength checker (matching backend: min 6 characters)
+const checkPasswordStrength = (password) => {
+  if (!password) return { score: 0, label: '', color: colors.border, percent: 0 };
+  
+  let score = 0;
+  
+  // Length checks (backend requires min 6)
+  if (password.length >= 6) score++;
+  if (password.length >= 10) score++;
+  
+  // Character variety checks
+  if (/[a-z]/.test(password)) score++;      // has lowercase
+  if (/[A-Z]/.test(password)) score++;      // has uppercase
+  if (/[0-9]/.test(password)) score++;      // has number
+  if (/[^a-zA-Z0-9]/.test(password)) score++; // has special char
+  
+  // Determine strength based on score
+  if (score <= 2) {
+    return { score, label: 'Weak', color: colors.weak, percent: 25 };
+  } else if (score <= 4) {
+    return { score, label: 'Fair', color: colors.fair, percent: 50 };
+  } else if (score <= 6) {
+    return { score, label: 'Good', color: colors.good, percent: 75 };
+  } else {
+    return { score, label: 'Strong', color: colors.strong, percent: 100 };
+  }
+};
+
+// Get requirement status (matching backend validation)
+const getRequirementStatus = (password, requirement) => {
+  switch(requirement) {
+    case 'length6':
+      return password.length >= 6;
+    case 'length10':
+      return password.length >= 10;
+    case 'lowercase':
+      return /[a-z]/.test(password);
+    case 'uppercase':
+      return /[A-Z]/.test(password);
+    case 'number':
+      return /[0-9]/.test(password);
+    case 'special':
+      return /[^a-zA-Z0-9]/.test(password);
+    default:
+      return false;
+  }
+};
 
 export default function RegisterScreen({ navigation }) {
   const [username, setUsername] = useState('');
-  const [email,    setEmail]    = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [role,     setRole]     = useState('community_member');
-  const [loading,  setLoading]  = useState(false);
-  const [showPass, setShowPass] = useState(false);
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [role, setRole] = useState('community_member');
+  const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [agreedToTerms, setAgreedToTerms] = useState(false);
+  const [passwordStrength, setPasswordStrength] = useState({ score: 0, label: '', color: colors.border, percent: 0 });
+  const [showRequirements, setShowRequirements] = useState(false);
+  const [passwordFocused, setPasswordFocused] = useState(false);
 
-  const handleRegister = async () => {
+  // Monitor password strength
+  useEffect(() => {
+    setPasswordStrength(checkPasswordStrength(password));
+  }, [password]);
+
+  const validateForm = () => {
     if (!username.trim()) {
-      Alert.alert('Missing field', 'Please enter a username.');
-      return;
+      Alert.alert('Missing Field', 'Please enter your full name.');
+      return false;
     }
     if (!email.trim()) {
-      Alert.alert('Missing field', 'Please enter your email address.');
-      return;
+      Alert.alert('Missing Field', 'Please enter your email address.');
+      return false;
     }
+    if (!password) {
+      Alert.alert('Missing Field', 'Please create a password.');
+      return false;
+    }
+    // Backend requires minimum 6 characters
     if (password.length < 6) {
-      Alert.alert('Weak password', 'Password must be at least 6 characters.');
-      return;
+      Alert.alert('Weak Password', 'Password must be at least 6 characters long.');
+      return false;
     }
+    if (password !== confirmPassword) {
+      Alert.alert('Password Mismatch', 'Passwords do not match.');
+      return false;
+    }
+    if (!agreedToTerms) {
+      Alert.alert('Terms & Conditions', 'Please agree to the Terms and Conditions.');
+      return false;
+    }
+    return true;
+  };
+
+  const handleRegister = async () => {
+    if (!validateForm()) return;
 
     setLoading(true);
     try {
-      await register(username.trim(), email.trim().toLowerCase(), password, role);
-      Alert.alert(
-        '✅ Account created!',
-        'You can now log in with your credentials.',
-        [{ text: 'Go to Login', onPress: () => navigation.replace('Login') }]
+      const data = await register(
+        username.trim(),
+        email.trim().toLowerCase(),
+        password,
+        role
       );
+
+      if (data.token && data.user) {
+        await saveAuth(data.token, data.user);
+        
+        const userRole = data.user.role;
+        // Role-based navigation
+        if (userRole === 'facility_manager') {
+          navigation.replace('FMApp');
+        } else if (userRole === 'admin') {
+          navigation.replace('AdminApp');
+        } else if (userRole === 'community_member') {
+          navigation.replace('CMApp');
+        } else if (userRole === 'worker') {
+          navigation.replace('WorkerApp');
+        }
+      } else {
+        Alert.alert('Success', 'Account created! Please log in.', [
+          { text: 'OK', onPress: () => navigation.navigate('Login') }
+        ]);
+      }
     } catch (err) {
-      Alert.alert('Registration Failed', err.message || 'Could not create account.');
+      Alert.alert('Registration Error', err.message || 'Could not create account');
     } finally {
       setLoading(false);
     }
   };
 
+  const openTermsLink = () => {
+    Linking.openURL('https://www.campuscaredemo.com/terms');
+  };
+
+  const openPrivacyLink = () => {
+    Linking.openURL('https://www.campuscaredemo.com/privacy');
+  };
+
   return (
     <SafeAreaView style={styles.safe}>
-      <StatusBar barStyle="light-content" backgroundColor="#0B1F3A" />
-
+      <StatusBar barStyle="light-content" backgroundColor={colors.primary} />
       <KeyboardAvoidingView
-        style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={{ flex: 1 }}
       >
         <ScrollView
           contentContainerStyle={styles.scroll}
@@ -78,110 +225,254 @@ export default function RegisterScreen({ navigation }) {
         >
           {/* Header */}
           <View style={styles.header}>
-            <View style={styles.deco1} />
-            <View style={styles.deco2} />
-            <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-              <Text style={styles.backText}>← Back</Text>
-            </TouchableOpacity>
-            <View style={styles.badge}>
-              <Text style={styles.badgeText}>🏛 CAMPUSCARE</Text>
+            <View style={styles.logoCircle}>
+              <Text style={styles.logoEmoji}>🏫</Text>
             </View>
-            <Text style={styles.headline}>Create account</Text>
-            <Text style={styles.sub}>Join the CampusCare community</Text>
+            <Text style={styles.appName}>Create Account</Text>
+            <Text style={styles.tagline}>Join the CampusCare community</Text>
           </View>
 
-          {/* Form */}
-          <View style={styles.form}>
-
-            <Text style={styles.label}>Username</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="e.g. john_doe"
-              placeholderTextColor="#CBD5E1"
-              value={username}
-              onChangeText={setUsername}
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-
-            <Text style={styles.label}>Email address</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="you@example.com"
-              placeholderTextColor="#CBD5E1"
-              value={email}
-              onChangeText={setEmail}
-              keyboardType="email-address"
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-
-            <Text style={styles.label}>Password</Text>
-            <View style={styles.passwordWrap}>
+          {/* Form Card */}
+          <View style={styles.formCard}>
+            {/* Full Name Input */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Full Name</Text>
               <TextInput
-                style={styles.passwordInput}
-                placeholder="At least 6 characters"
-                placeholderTextColor="#CBD5E1"
-                value={password}
-                onChangeText={setPassword}
-                secureTextEntry={!showPass}
-                autoCapitalize="none"
+                style={styles.input}
+                placeholder="Enter your full name"
+                placeholderTextColor={colors.textSecondary}
+                value={username}
+                onChangeText={setUsername}
+                autoCapitalize="words"
+                returnKeyType="next"
+                editable={!loading}
               />
-              <TouchableOpacity
-                style={styles.eyeBtn}
-                onPress={() => setShowPass(v => !v)}
-              >
-                <Text style={styles.eyeIcon}>{showPass ? '🙈' : '👁'}</Text>
-              </TouchableOpacity>
             </View>
 
-            <Text style={styles.label}>I am a...</Text>
+            {/* Email Input */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Email Address</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Enter your Email"
+                placeholderTextColor={colors.textSecondary}
+                value={email}
+                onChangeText={setEmail}
+                autoCapitalize="none"
+                keyboardType="email-address"
+                returnKeyType="next"
+                editable={!loading}
+              />
+            </View>
+
+            {/* Password Input with Strength Indicator */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Password</Text>
+              <View style={styles.passwordWrap}>
+                <TextInput
+                  style={styles.passwordInput}
+                  placeholder="Create a password (min. 6 characters)"
+                  placeholderTextColor={colors.textSecondary}
+                  value={password}
+                  onChangeText={setPassword}
+                  secureTextEntry={!showPassword}
+                  onFocus={() => {
+                    setShowRequirements(true);
+                    setPasswordFocused(true);
+                  }}
+                  onBlur={() => setPasswordFocused(false)}
+                  returnKeyType="next"
+                  editable={!loading}
+                />
+                <TouchableOpacity
+                  onPress={() => setShowPassword(!showPassword)}
+                  style={styles.eyeBtn}
+                  disabled={loading}
+                >
+                  <Text style={styles.eyeIcon}>{showPassword ? 'Hide' : 'Show'}</Text>
+                </TouchableOpacity>
+              </View>
+              
+              {/* Password Strength Bar */}
+              {password.length > 0 && (
+                <View style={styles.strengthContainer}>
+                  <View style={styles.strengthBarBg}>
+                    <View 
+                      style={[
+                        styles.strengthBarFill, 
+                        { 
+                          width: `${passwordStrength.percent}%`,
+                          backgroundColor: passwordStrength.color
+                        }
+                      ]} 
+                    />
+                  </View>
+                  <Text style={[styles.strengthLabel, { color: passwordStrength.color }]}>
+                    {passwordStrength.label} Password
+                  </Text>
+                </View>
+              )}
+              
+              {/* Password Requirements (matching backend: min 6 chars) */}
+              {(showRequirements || passwordFocused || password.length > 0) && (
+                <View style={styles.requirementsContainer}>
+                  <Text style={styles.requirementsTitle}>Password must contain:</Text>
+                  <View style={styles.requirementsList}>
+                    <Text style={[
+                      styles.requirement,
+                      getRequirementStatus(password, 'length6') && styles.requirementMet
+                    ]}>
+                      {getRequirementStatus(password, 'length6') ? '✓' : '○'} At least 6 characters (required)
+                    </Text>
+                    <Text style={[
+                      styles.requirement,
+                      getRequirementStatus(password, 'lowercase') && styles.requirementMet
+                    ]}>
+                      {getRequirementStatus(password, 'lowercase') ? '✓' : '○'} Lowercase letter (a-z)
+                    </Text>
+                    <Text style={[
+                      styles.requirement,
+                      getRequirementStatus(password, 'uppercase') && styles.requirementMet
+                    ]}>
+                      {getRequirementStatus(password, 'uppercase') ? '✓' : '○'} Uppercase letter (A-Z)
+                    </Text>
+                    <Text style={[
+                      styles.requirement,
+                      getRequirementStatus(password, 'number') && styles.requirementMet
+                    ]}>
+                      {getRequirementStatus(password, 'number') ? '✓' : '○'} Number (0-9)
+                    </Text>
+                    <Text style={[
+                      styles.requirement,
+                      getRequirementStatus(password, 'special') && styles.requirementMet
+                    ]}>
+                      {getRequirementStatus(password, 'special') ? '✓' : '○'} Special character (!@#$%^&*)
+                    </Text>
+                    <Text style={[
+                      styles.requirement,
+                      getRequirementStatus(password, 'length10') && styles.requirementMet
+                    ]}>
+                      {getRequirementStatus(password, 'length10') ? '✓' : '○'} 10+ characters (stronger)
+                    </Text>
+                  </View>
+                </View>
+              )}
+            </View>
+
+            {/* Confirm Password Input */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Confirm Password</Text>
+              <View style={styles.passwordWrap}>
+                <TextInput
+                  style={styles.passwordInput}
+                  placeholder="Confirm your password"
+                  placeholderTextColor={colors.textSecondary}
+                  value={confirmPassword}
+                  onChangeText={setConfirmPassword}
+                  secureTextEntry={!showConfirmPassword}
+                  returnKeyType="done"
+                  editable={!loading}
+                />
+                <TouchableOpacity
+                  onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+                  style={styles.eyeBtn}
+                  disabled={loading}
+                >
+                  <Text style={styles.eyeIcon}>{showConfirmPassword ? 'Hide' : 'Show'}</Text>
+                </TouchableOpacity>
+              </View>
+              
+              {/* Password Match Indicator */}
+              {confirmPassword.length > 0 && (
+                <View style={styles.matchContainer}>
+                  <Text style={[
+                    styles.matchText,
+                    password === confirmPassword && password.length > 0 ? styles.matchSuccess : styles.matchError
+                  ]}>
+                    {password === confirmPassword && password.length > 0 ? '✓ Passwords match' : '✗ Passwords do not match'}
+                  </Text>
+                </View>
+              )}
+            </View>
+
+            {/* Role Selection */}
+            <Text style={[styles.label, { marginTop: spacing.sm }]}>Select Your Role</Text>
             <View style={styles.roleGroup}>
-              {ROLES.map(r => {
-                const active = role === r.value;
+              {ROLES.map((r) => {
+                const isActive = role === r.value;
                 return (
                   <TouchableOpacity
                     key={r.value}
-                    style={[styles.roleCard, active && styles.roleCardActive]}
+                    style={[styles.roleCard, isActive && styles.roleCardActive]}
                     onPress={() => setRole(r.value)}
-                    activeOpacity={0.8}
+                    disabled={loading}
                   >
-                    <Text style={[styles.roleLabel, active && styles.roleLabelActive]}>
+                    <Text style={[styles.roleLabel, isActive && styles.roleLabelActive]}>
                       {r.label}
                     </Text>
-                    <Text style={[styles.roleDesc, active && styles.roleDescActive]}>
+                    <Text style={[styles.roleDesc, isActive && styles.roleDescActive]}>
                       {r.desc}
                     </Text>
-                    {active && (
-                      <View style={styles.roleCheck}>
-                        <Text style={{ color: '#fff', fontSize: 12, fontWeight: '900' }}>✓</Text>
-                      </View>
-                    )}
                   </TouchableOpacity>
                 );
               })}
             </View>
 
+            {/* Terms & Conditions */}
             <TouchableOpacity
-              style={[styles.registerBtn, loading && { opacity: 0.7 }]}
-              onPress={handleRegister}
+              style={styles.termsContainer}
+              onPress={() => setAgreedToTerms(!agreedToTerms)}
               disabled={loading}
-              activeOpacity={0.85}
             >
-              {loading
-                ? <ActivityIndicator color="#fff" />
-                : <Text style={styles.registerBtnText}>Create Account →</Text>
-              }
+              <View style={[styles.checkbox, agreedToTerms && styles.checkboxChecked]}>
+                {agreedToTerms && <Text style={styles.checkmark}>✓</Text>}
+              </View>
+              <Text style={styles.termsText}>
+                I agree to the{' '}
+                <Text style={styles.termsLink} onPress={openTermsLink}>Terms of Service</Text> and{' '}
+                <Text style={styles.termsLink} onPress={openPrivacyLink}>Privacy Policy</Text>
+              </Text>
             </TouchableOpacity>
 
+            {/* Register Button */}
+            <TouchableOpacity
+              style={[styles.registerBtn, loading && styles.registerBtnDisabled]}
+              onPress={handleRegister}
+              disabled={loading}
+            >
+              {loading ? (
+                <ActivityIndicator color="#FFFFFF" />
+              ) : (
+                <Text style={styles.registerBtnText}>Create Account</Text>
+              )}
+            </TouchableOpacity>
+
+            {/* Login Link */}
             <TouchableOpacity
               style={styles.loginLink}
               onPress={() => navigation.navigate('Login')}
+              disabled={loading}
             >
-              <Text style={styles.loginLinkText}>Already have an account? Sign in</Text>
+              <Text style={styles.loginLinkText}>
+                Already have an account?{' '}
+                <Text style={styles.loginLinkHighlight}>Sign In</Text>
+              </Text>
             </TouchableOpacity>
 
+            {/* Terms and Privacy Links (Footer inside card) */}
+            <View style={styles.legalLinks}>
+              <TouchableOpacity onPress={openTermsLink}>
+                <Text style={styles.legalLinkText}>Terms of Service</Text>
+              </TouchableOpacity>
+              <Text style={styles.legalSeparator}>•</Text>
+              <TouchableOpacity onPress={openPrivacyLink}>
+                <Text style={styles.legalLinkText}>Privacy Policy</Text>
+              </TouchableOpacity>
+            </View>
           </View>
+
+          {/* Footer */}
+          <Text style={styles.footer}>CampusCare © 2026</Text>
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -189,131 +480,271 @@ export default function RegisterScreen({ navigation }) {
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#0B1F3A' },
-  scroll: { flexGrow: 1 },
-
-  header: {
-    backgroundColor: '#0B1F3A',
-    paddingHorizontal: 28,
-    paddingTop: 20,
-    paddingBottom: 36,
-    overflow: 'hidden',
-  },
-  deco1: {
-    position: 'absolute', top: -50, right: -50,
-    width: 200, height: 200, borderRadius: 100,
-    backgroundColor: 'rgba(240,165,0,0.12)',
-  },
-  deco2: {
-    position: 'absolute', bottom: -30, left: -30,
-    width: 140, height: 140, borderRadius: 70,
-    backgroundColor: 'rgba(10,147,150,0.18)',
-  },
-  backBtn: { marginBottom: 20, alignSelf: 'flex-start', padding: 4 },
-  backText: { color: 'rgba(255,255,255,0.7)', fontSize: 14, fontWeight: '700' },
-  badge: {
-    alignSelf: 'flex-start',
-    backgroundColor: 'rgba(240,165,0,0.2)',
-    borderWidth: 1, borderColor: 'rgba(240,165,0,0.35)',
-    paddingHorizontal: 12, paddingVertical: 5,
-    borderRadius: 8, marginBottom: 16,
-  },
-  badgeText: { color: '#F0A500', fontSize: 11, fontWeight: '800', letterSpacing: 2 },
-  headline:  { color: '#fff', fontSize: 28, fontWeight: '900', marginBottom: 6 },
-  sub:       { color: 'rgba(255,255,255,0.55)', fontSize: 14 },
-
-  form: {
+  safe: {
     flex: 1,
-    backgroundColor: '#F8F4EF',
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    padding: 28,
-    paddingTop: 32,
+    backgroundColor: colors.primary,
   },
-
+  scroll: {
+    flexGrow: 1,
+    paddingBottom: spacing.xl,
+  },
+  header: {
+    alignItems: 'center',
+    paddingVertical: spacing.xl,
+  },
+  logoCircle: {
+    width: 80,
+    height: 80,
+    borderRadius: radius.round,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: spacing.md,
+  },
+  logoEmoji: {
+    fontSize: 40,
+  },
+  appName: {
+    ...typography.h2,
+    color: '#FFFFFF',
+    letterSpacing: -0.5,
+  },
+  tagline: {
+    ...typography.bodySmall,
+    color: 'rgba(255,255,255,0.7)',
+    fontWeight: '600',
+    marginTop: spacing.xs,
+  },
+  formCard: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.xl,
+    marginHorizontal: spacing.md,
+    padding: spacing.lg,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.2,
+    shadowRadius: 30,
+    elevation: 10,
+  },
+  inputGroup: {
+    marginBottom: spacing.md,
+  },
   label: {
-    fontSize: 12,
+    ...typography.caption,
+    color: colors.primary,
     fontWeight: '800',
-    color: '#64748B',
-    letterSpacing: 1,
+    marginBottom: spacing.sm,
     textTransform: 'uppercase',
-    marginBottom: 8,
-    marginTop: 4,
+    letterSpacing: 0.5,
   },
   input: {
-    backgroundColor: '#fff',
-    borderRadius: 14,
-    padding: 16,
-    fontSize: 15,
-    color: '#0B1F3A',
+    backgroundColor: '#F8FAFC',
     borderWidth: 1.5,
-    borderColor: '#E2E8F0',
-    marginBottom: 16,
-    shadowColor: '#0B1F3A',
-    shadowOpacity: 0.04,
-    shadowRadius: 6,
-    elevation: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    padding: spacing.md,
+    fontSize: 15,
+    color: colors.text,
   },
-
   passwordWrap: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#fff',
-    borderRadius: 14,
+    backgroundColor: '#F8FAFC',
     borderWidth: 1.5,
-    borderColor: '#E2E8F0',
-    marginBottom: 20,
-    shadowColor: '#0B1F3A',
-    shadowOpacity: 0.04,
-    shadowRadius: 6,
-    elevation: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
   },
   passwordInput: {
     flex: 1,
-    padding: 16,
+    padding: spacing.md,
     fontSize: 15,
-    color: '#0B1F3A',
+    color: colors.text,
   },
-  eyeBtn:  { paddingHorizontal: 16 },
-  eyeIcon: { fontSize: 18 },
-
-  roleGroup:    { gap: 10, marginBottom: 28 },
+  eyeBtn: {
+    paddingRight: spacing.md,
+  },
+  eyeIcon: {
+    fontSize: 18,
+  },
+  // Password Strength Styles
+  strengthContainer: {
+    marginTop: spacing.sm,
+  },
+  strengthBarBg: {
+    height: 4,
+    backgroundColor: colors.border,
+    borderRadius: 2,
+    overflow: 'hidden',
+  },
+  strengthBarFill: {
+    height: '100%',
+    borderRadius: 2,
+  },
+  strengthLabel: {
+    ...typography.caption,
+    marginTop: spacing.xs,
+    fontWeight: '600',
+  },
+  requirementsContainer: {
+    marginTop: spacing.sm,
+    padding: spacing.sm,
+    backgroundColor: '#F8FAFC',
+    borderRadius: radius.sm,
+  },
+  requirementsTitle: {
+    ...typography.caption,
+    color: colors.textSecondary,
+    fontWeight: '600',
+    marginBottom: spacing.xs,
+  },
+  requirementsList: {
+    gap: 4,
+  },
+  requirement: {
+    ...typography.caption,
+    color: colors.textSecondary,
+  },
+  requirementMet: {
+    color: colors.success,
+    fontWeight: '600',
+  },
+  matchContainer: {
+    marginTop: spacing.xs,
+  },
+  matchText: {
+    ...typography.caption,
+    fontWeight: '500',
+  },
+  matchSuccess: {
+    color: colors.success,
+  },
+  matchError: {
+    color: colors.danger,
+  },
+  roleGroup: {
+    gap: 10,
+    marginBottom: spacing.md,
+  },
   roleCard: {
-    backgroundColor: '#fff',
-    borderRadius: 14,
-    padding: 16,
+    backgroundColor: '#F8FAFC',
+    borderRadius: radius.md,
+    padding: spacing.md,
     borderWidth: 1.5,
-    borderColor: '#E2E8F0',
-    position: 'relative',
+    borderColor: colors.border,
   },
   roleCardActive: {
-    backgroundColor: '#0B1F3A',
-    borderColor: '#0B1F3A',
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
   },
-  roleLabel: { fontSize: 14, fontWeight: '800', color: '#0B1F3A', marginBottom: 2 },
-  roleLabelActive: { color: '#F0A500' },
-  roleDesc:  { fontSize: 12, color: '#64748B' },
-  roleDescActive: { color: 'rgba(255,255,255,0.6)' },
-  roleCheck: {
-    position: 'absolute', top: 14, right: 14,
-    width: 22, height: 22, borderRadius: 11,
-    backgroundColor: '#0A9396',
-    alignItems: 'center', justifyContent: 'center',
+  roleLabel: {
+    ...typography.bodySmall,
+    fontWeight: '800',
+    color: colors.text,
   },
-
-  registerBtn: {
-    backgroundColor: '#0B1F3A',
-    borderRadius: 14,
-    paddingVertical: 17,
+  roleLabelActive: {
+    color: colors.secondary,
+  },
+  roleDesc: {
+    ...typography.caption,
+    color: colors.textSecondary,
+    marginTop: spacing.xs,
+  },
+  roleDescActive: {
+    color: 'rgba(255,255,255,0.6)',
+  },
+  termsContainer: {
+    flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 20,
-    shadowColor: '#0B1F3A',
-    shadowOpacity: 0.2,
-    shadowRadius: 12,
-    elevation: 4,
+    marginVertical: spacing.md,
   },
-  registerBtnText: { color: '#fff', fontSize: 16, fontWeight: '800' },
-
-  loginLink: { alignItems: 'center', paddingBottom: 24 },
-  loginLinkText: { color: '#0A9396', fontSize: 14, fontWeight: '700' },
+  checkbox: {
+    width: 22,
+    height: 22,
+    borderRadius: radius.sm,
+    borderWidth: 2,
+    borderColor: colors.border,
+    marginRight: spacing.sm,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#F8FAFC',
+  },
+  checkboxChecked: {
+    backgroundColor: colors.secondary,
+    borderColor: colors.secondary,
+  },
+  checkmark: {
+    color: colors.primary,
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  termsText: {
+    ...typography.bodySmall,
+    color: colors.textSecondary,
+    flex: 1,
+    lineHeight: 18,
+  },
+  termsLink: {
+    color: colors.secondary,
+    fontWeight: '700',
+  },
+  registerBtn: {
+    backgroundColor: colors.primary,
+    borderRadius: radius.md,
+    paddingVertical: spacing.md,
+    alignItems: 'center',
+    marginTop: spacing.sm,
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+    elevation: 5,
+  },
+  registerBtnDisabled: {
+    opacity: 0.7,
+  },
+  registerBtnText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  loginLink: {
+    alignItems: 'center',
+    paddingVertical: spacing.md,
+    marginTop: spacing.sm,
+  },
+  loginLinkText: {
+    ...typography.body,
+    color: colors.textSecondary,
+    fontWeight: '600',
+  },
+  loginLinkHighlight: {
+    color: colors.secondary,
+    fontWeight: '800',
+  },
+  legalLinks: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: spacing.md,
+    paddingTop: spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  legalLinkText: {
+    ...typography.caption,
+    color: colors.textSecondary,
+    fontWeight: '500',
+  },
+  legalSeparator: {
+    ...typography.caption,
+    color: colors.textSecondary,
+    marginHorizontal: spacing.sm,
+  },
+  footer: {
+    ...typography.caption,
+    color: 'rgba(255,255,255,0.4)',
+    textAlign: 'center',
+    marginTop: spacing.xl,
+    fontWeight: '700',
+  },
 });
