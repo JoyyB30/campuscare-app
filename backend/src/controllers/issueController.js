@@ -274,20 +274,27 @@ exports.updateIssueStatus = async (req, res) => {
     }
 
     if (req.user.role === 'worker') {
-      if (ticket.assigned_to !== req.user.id) {
-        return res.status(403).json({
-          error: 'Access denied',
-          message: 'Workers can only update issues assigned to them'
-        });
-      }
+  if (ticket.assigned_to !== req.user.id) {
+    return res.status(403).json({
+      error: 'Access denied',
+      message: 'Workers can only update issues assigned to them'
+    });
+  }
 
-      if (status !== 'in_progress' && status !== 'resolved') {
-        return res.status(403).json({
-          error: 'Invalid worker action',
-          message: 'Workers can only mark assigned issues as in_progress or resolved'
-        });
-      }
-    }
+  if (status !== 'in_progress' && status !== 'resolved') {
+    return res.status(403).json({
+      error: 'Invalid worker action',
+      message: 'Workers can only mark assigned issues as in_progress or resolved'
+    });
+  }
+
+  if (status === 'resolved' && !ticket.completed_photo_url) {
+    return res.status(400).json({
+      error: 'Completion photo required',
+      message: 'Worker must upload a completion photo before marking the issue as resolved'
+    });
+  }
+}
 
     const result = await db.query(
       `UPDATE tickets
@@ -309,12 +316,12 @@ exports.updateIssueStatus = async (req, res) => {
     }
 
     if (req.user.role === 'worker' && status === 'resolved') {
-      await notifyFacilityManagers(
-        updatedTicket.ticket_id,
-        'completion',
-        `Worker marked issue "${updatedTicket.title}" as resolved`
-      );
-    }
+  await notifyFacilityManagers(
+    updatedTicket.ticket_id,
+    'completion',
+    `Worker marked issue "${updatedTicket.title}" as resolved. Please review the completion photo and check the quality of work.`
+  );
+}
 
     res.status(200).json({
       message: 'Issue status updated successfully',
@@ -532,11 +539,11 @@ exports.addComment = async (req, res) => {
       [comment_text, id, req.user.id]
     );
 
-    await notifyFacilityManagers(
-      id,
-      'completion',
-      `Worker added a comment on issue "${ticket.title}"`
-    );
+await notifyFacilityManagers(
+  id,
+  'completion',
+  `Worker added a comment on issue "${ticket.title}": ${comment_text}`
+);
 
     res.status(201).json({
       message: 'Comment added successfully',
