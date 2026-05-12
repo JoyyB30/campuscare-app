@@ -1,34 +1,74 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { ActivityIndicator, View } from 'react-native';
+
+import { getUser, getToken } from './src/services/api';
+
 import FMNavigator from './src/navigation/FMNavigator';
-import { saveAuth } from './src/services/api';
+import CMNavigator from './src/navigation/CMNavigator';
+import WorkerNavigator from './src/navigation/WorkerNavigator';
+import AdminNavigator from './src/navigation/AdminNavigator';
+
+import LoginScreen from './src/screens/LoginScreen';
+import RegisterScreen from './src/screens/RegisterScreen';
 
 const Stack = createNativeStackNavigator();
 
 export default function App() {
+  const [loading, setLoading] = useState(true);
+  const [initialRoute, setInitialRoute] = useState('Login');
+
   useEffect(() => {
-    // TEMPORARY ONLY FOR TESTING FM SCREENS.
-    // Remove this later when the real login screen is connected.
-    saveAuth(
-      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6NSwicm9sZSI6ImZhY2lsaXR5X21hbmFnZXIiLCJpYXQiOjE3Nzg1MzY2ODEsImV4cCI6MTc4MTEyODY4MX0.WIYgFFP8QFlvE_iY_4imP95f_wNNqjSt5Tj50jScjz8',
-      {
-        id: 4,
-        role: 'facility_manager',
-        username: 'manager1',
-        email: 'manager1@example.com',
-      }
-    );
+    checkAuth();
   }, []);
 
+  const checkAuth = async () => {
+    const token = await getToken();
+    const user = await getUser();
+
+    if (!token || !user) {
+      setInitialRoute('Login');
+      setLoading(false);
+      return;
+    }
+
+    if (user.role === 'facility_manager') {
+      setInitialRoute('FMApp');
+    } else if (user.role === 'community_member') {
+      setInitialRoute('CMApp');
+    } else if (user.role === 'worker') {
+      setInitialRoute('WorkerApp');
+    } else if (user.role === 'admin') {
+      setInitialRoute('AdminApp');
+    } else {
+      setInitialRoute('Login');
+    }
+
+    setLoading(false);
+  };
+
+  if (loading) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F8F4EF' }}>
+        <ActivityIndicator size="large" color="#0B1F3A" />
+      </View>
+    );
+  }
+
   return (
-    <NavigationContainer
-      documentTitle={{
-        formatter: () => 'CampusCare',
-      }}
-    >
-      <Stack.Navigator screenOptions={{ headerShown: false }}>
-        <Stack.Screen name="CampusCare" component={FMNavigator} />
+    <NavigationContainer>
+      <Stack.Navigator
+        initialRouteName={initialRoute}
+        screenOptions={{ headerShown: false }}
+      >
+        <Stack.Screen name="Login" component={LoginScreen} />
+        <Stack.Screen name="Register" component={RegisterScreen} />
+
+        <Stack.Screen name="FMApp" component={FMNavigator} />
+        <Stack.Screen name="CMApp" component={CMNavigator} />
+        <Stack.Screen name="WorkerApp" component={WorkerNavigator} />
+        <Stack.Screen name="AdminApp" component={AdminNavigator} />
       </Stack.Navigator>
     </NavigationContainer>
   );

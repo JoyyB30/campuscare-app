@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -9,16 +9,17 @@ import {
   TextInput,
   SafeAreaView,
   StatusBar,
-  Platform,
   Alert,
   ScrollView,
 } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 
 import {
   getUser,
   clearAuth,
   getAllIssues,
   getWorkers,
+  updateWorkerStatus,
   getMyNotifications,
   markNotificationAsRead,
 } from '../services/api';
@@ -75,6 +76,24 @@ const STATUS_META = {
   },
 };
 
+const STATUS_FILTERS = ['All', 'pending', 'assigned', 'in_progress', 'resolved', 'closed'];
+
+const CATEGORY_FILTERS = [
+  'All',
+  'Electrical',
+  'Plumbing',
+  'Cleaning',
+  'Furniture',
+  'Air Conditioning',
+];
+
+const DATE_FILTERS = [
+  'All',
+  'Today',
+  'Last 7 Days',
+  'Last 30 Days',
+];
+
 const CAT_ICONS = {
   Electrical: '⚡',
   Plumbing: '🔧',
@@ -91,17 +110,6 @@ const CAT_BG = {
   'Air Conditioning': '#EFF6FF',
 };
 
-const STATUS_FILTERS = ['All', 'pending', 'assigned', 'in_progress', 'resolved', 'closed'];
-
-const CATEGORY_FILTERS = [
-  'All',
-  'Electrical',
-  'Plumbing',
-  'Cleaning',
-  'Furniture',
-  'Air Conditioning',
-];
-
 const CATEGORY_ID_TO_NAME = {
   1: 'Electrical',
   2: 'Plumbing',
@@ -114,20 +122,22 @@ const getCategoryName = (item) => {
   return item.category || CATEGORY_ID_TO_NAME[item.category_id] || 'Issue';
 };
 
-const getNotificationIcon = (type) => {
+const getNotificationIcon = (notification) => {
+  const type = notification.notification_type || notification.type;
+
   if (type === 'assignment') return '👷';
   if (type === 'completion') return '✅';
   if (type === 'status_change') return '🔄';
+
   return '🔔';
 };
 
-export default function FMDashboardScreen({ navigation }) {
+export default function FMDashboardScreen({ route, navigation }) {
   const [issues, setIssues] = useState([]);
-  const [filtered, setFiltered] = useState([]);
   const [workers, setWorkers] = useState([]);
   const [notifications, setNotifications] = useState([]);
 
-  const [activeTab, setActiveTab] = useState('dashboard');
+  const [activeTab, setActiveTab] = useState(route?.params?.initialTab || 'dashboard');
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -136,16 +146,15 @@ export default function FMDashboardScreen({ navigation }) {
   const [search, setSearch] = useState('');
   const [statusF, setStatusF] = useState('All');
   const [categoryF, setCategoryF] = useState('All');
+  const [dateF, setDateF] = useState('All');
 
   const [error, setError] = useState(null);
   const [username, setUsername] = useState('Manager');
 
   useEffect(() => {
     loadUser();
-    loadAllData();
   }, []);
 
-  // Debounce search so typing stays smooth and updates automatically.
   useEffect(() => {
     const timer = setTimeout(() => {
       setSearch(searchInput);
@@ -155,16 +164,24 @@ export default function FMDashboardScreen({ navigation }) {
   }, [searchInput]);
 
   useEffect(() => {
-    applyFilters(issues, search, statusF, categoryF);
-  }, [search, statusF, categoryF, issues]);
+    if (route?.params?.initialTab) {
+      setActiveTab(route.params.initialTab);
+    }
+  }, [route?.params?.initialTab, route?.params?.refreshKey]);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadAllData(false);
+    }, [])
+  );
 
   const loadUser = async () => {
     const u = await getUser();
     if (u) setUsername(u.username || 'Manager');
   };
 
-  const loadAllData = async () => {
-    setLoading(true);
+  const loadAllData = async (showMainLoader = true) => {
+    if (showMainLoader) setLoading(true);
 
     await Promise.all([
       fetchIssues(),
@@ -179,14 +196,9 @@ export default function FMDashboardScreen({ navigation }) {
   const fetchIssues = async () => {
     try {
       setError(null);
-
-      // Fetch all issues and filter locally.
-      // This makes search instant and makes closed filter work properly.
       const data = await getAllIssues({});
       const list = Array.isArray(data) ? data : data.issues || [];
-
       setIssues(list);
-      applyFilters(list, search, statusF, categoryF);
     } catch (err) {
       setError(err.message);
     }
@@ -212,46 +224,89 @@ export default function FMDashboardScreen({ navigation }) {
     }
   };
 
-  const applyFilters = (list, s, st, cat) => {
-    let r = [...list];
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    loadAllData(false);
+  }, []);
 
-    if (st !== 'All') {
-      r = r.filter(i => i.status === st);
+  const statusCounts = useMemo(() => {
+    return {
+      All: issues.length,
+      pending: issues.filter(i => i.status === 'pending').length,
+      assigned: issues.filter(i => i.status === 'assigned').length,
+      in_progress: issues.filter(i => i.status === 'in_progress').length,
+      resolved: issues.filter(i => i.status === 'resolved').length,
+      closed: issues.filter(i => i.status === 'closed').length,
+    };
+  }, [issues]);
+
+  const filtered = useMemo(() => {
+    let r = [...issues];
+
+    if (statusF !== 'All') {
+      r = r.filter(i => i.status === statusF);
     }
 
-    if (cat !== 'All') {
-      r = r.filter(i => getCategoryName(i) === cat);
+    if (categoryF !== 'All') {
+      r = r.filter(i => getCategoryName(i) === categoryF);
     }
 
-    if (s.trim()) {
-      const keyword = s.trim().toLowerCase();
+    if (dateF !== 'All') {
+      const now = new Date();
 
       r = r.filter(i => {
-        const title = i.title || '';
-        const description = i.description || '';
-        const categoryName = getCategoryName(i);
-        const priority = i.priority || '';
-        const status = i.status || '';
-        const ticketId = String(i.ticket_id || i.id || '');
+        if (!i.created_at) return false;
+
+        const issueDate = new Date(i.created_at);
+
+        if (dateF === 'Today') {
+          return issueDate.toDateString() === now.toDateString();
+        }
+
+        if (dateF === 'Last 7 Days') {
+          const sevenDaysAgo = new Date();
+          sevenDaysAgo.setDate(now.getDate() - 7);
+          return issueDate >= sevenDaysAgo;
+        }
+
+        if (dateF === 'Last 30 Days') {
+          const thirtyDaysAgo = new Date();
+          thirtyDaysAgo.setDate(now.getDate() - 30);
+          return issueDate >= thirtyDaysAgo;
+        }
+
+        return true;
+      });
+    }
+
+    if (search.trim()) {
+      const keyword = search.trim().toLowerCase();
+
+      r = r.filter(i => {
+        const id = String(i.ticket_id || i.id || '');
+        const title = String(i.title || '').toLowerCase();
+        const description = String(i.description || '').toLowerCase();
+        const category = String(getCategoryName(i)).toLowerCase();
+        const priority = String(i.priority || '').toLowerCase();
+        const status = String(i.status || '').toLowerCase();
+        const worker = String(i.assigned_worker || i.assigned_worker_username || i.worker_username || '').toLowerCase();
 
         return (
-          title.toLowerCase().includes(keyword) ||
-          description.toLowerCase().includes(keyword) ||
-          categoryName.toLowerCase().includes(keyword) ||
-          priority.toLowerCase().includes(keyword) ||
-          status.toLowerCase().includes(keyword) ||
-          ticketId.includes(keyword)
+          id.includes(keyword) ||
+          title.includes(keyword) ||
+          description.includes(keyword) ||
+          category.includes(keyword) ||
+          priority.includes(keyword) ||
+          status.includes(keyword) ||
+          worker.includes(keyword)
         );
       });
     }
 
-    setFiltered(r);
-  };
+    return r;
+  }, [issues, statusF, categoryF, dateF, search]);
 
-  const onRefresh = useCallback(() => {
-    setRefreshing(true);
-    loadAllData();
-  }, [search, statusF, categoryF]);
+  const unreadCount = notifications.filter(n => !n.is_read).length;
 
   const handleLogout = () => {
     Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
@@ -261,10 +316,7 @@ export default function FMDashboardScreen({ navigation }) {
         style: 'destructive',
         onPress: async () => {
           await clearAuth();
-
-          if (navigation.replace) {
-            navigation.replace('Login');
-          }
+          navigation.replace('Login');
         },
       },
     ]);
@@ -273,234 +325,69 @@ export default function FMDashboardScreen({ navigation }) {
   const handleMarkAsRead = async (notificationId) => {
     try {
       await markNotificationAsRead(notificationId);
-
-      setNotifications(prev =>
-        prev.map(n =>
-          n.notification_id === notificationId
-            ? { ...n, is_read: true }
-            : n
-        )
-      );
+      await fetchNotifications();
     } catch (err) {
       Alert.alert('Error', err.message);
     }
   };
 
-  const counts = {
-    total: issues.length,
-    pending: issues.filter(i => i.status === 'pending' || i.status === 'assigned').length,
-    active: issues.filter(i => i.status === 'in_progress').length,
-    resolved: issues.filter(i => i.status === 'resolved' || i.status === 'closed').length,
+  const handleWorkerStatusChange = async (workerId, isActive) => {
+    try {
+      await updateWorkerStatus(workerId, isActive);
+      await fetchWorkers();
+    } catch (err) {
+      Alert.alert('Error', err.message || 'Could not update worker status.');
+    }
   };
 
-  const unreadCount = notifications.filter(n => !n.is_read).length;
-
-  const renderIssueCard = (item) => {
-    const id = item.ticket_id || item.id;
-    const s = STATUS_META[item.status] || STATUS_META.pending;
-
-    const categoryName = getCategoryName(item);
-    const icon = CAT_ICONS[categoryName] || '📋';
-    const bg = CAT_BG[categoryName] || '#F8FAFC';
-
-    return (
-      <TouchableOpacity
-        key={String(id)}
-        style={[styles.card, { borderLeftColor: s.border }]}
-        onPress={() => navigation.navigate('FMIssueDetail', { issueId: id })}
-        activeOpacity={0.82}
-      >
-        <View style={styles.cardRow1}>
-          <View style={styles.cardLeft}>
-            <View style={[styles.catBox, { backgroundColor: bg }]}>
-              <Text style={styles.catIcon}>{icon}</Text>
-            </View>
-
-            <View>
-              <Text style={styles.cardTitle}>
-                {item.title || categoryName || 'Issue'}
-              </Text>
-              <Text style={styles.cardId}>Ticket #{id}</Text>
-            </View>
-          </View>
-
-          <View
-            style={[
-              styles.statusPill,
-              { backgroundColor: s.bg, borderColor: s.border },
-            ]}
-          >
-            <Text style={[styles.statusDot, { color: s.color }]}>{s.dot} </Text>
-            <Text style={[styles.statusLabel, { color: s.color }]}>{s.label}</Text>
-          </View>
-        </View>
-
-        <Text style={styles.cardDesc} numberOfLines={2}>
-          {item.description || 'No description provided.'}
-        </Text>
-
-        <View style={styles.cardFooter}>
-          <Text style={styles.cardMeta}>
-            🏷 {item.priority ? item.priority.toUpperCase() : 'MEDIUM'} priority
-          </Text>
-
-          <Text style={styles.cardDate}>
-            {item.created_at
-              ? new Date(item.created_at).toLocaleDateString('en-GB', {
-                  day: '2-digit',
-                  month: 'short',
-                  year: 'numeric',
-                })
-              : '—'}
-          </Text>
-        </View>
-
-        <View style={styles.tapHintRow}>
-          <Text style={styles.tapHintText}>Tap to manage →</Text>
-        </View>
-      </TouchableOpacity>
-    );
-  };
-
-  const renderWorkerCard = (item) => (
-    <View key={String(item.user_id)} style={styles.workerCard}>
-      <View style={styles.workerIconBox}>
-        <Text style={styles.workerIcon}>👷</Text>
-      </View>
-
-      <View style={{ flex: 1 }}>
-        <Text style={styles.workerName}>{item.username}</Text>
-        <Text style={styles.workerEmail}>{item.email}</Text>
-        <Text style={styles.workerId}>Worker #{item.user_id}</Text>
-      </View>
-
-      <View
-        style={[
-          styles.workerStatus,
-          { backgroundColor: item.is_active === false ? '#FEF2F2' : '#F0FDF4' },
-        ]}
-      >
-        <Text
-          style={[
-            styles.workerStatusText,
-            { color: item.is_active === false ? '#DC2626' : '#15803D' },
-          ]}
-        >
-          {item.is_active === false ? 'Inactive' : 'Active'}
-        </Text>
-      </View>
-    </View>
-  );
-
-  const renderNotificationCard = (item) => {
-    const icon = getNotificationIcon(item.notification_type);
-
-    return (
-      <View
-        key={String(item.notification_id)}
-        style={[
-          styles.notificationCard,
-          item.is_read ? styles.notificationRead : styles.notificationUnread,
-        ]}
-      >
-        <View style={styles.notificationIconBox}>
-          <Text style={styles.notificationIcon}>{icon}</Text>
-        </View>
-
-        <View style={{ flex: 1 }}>
-          <Text style={styles.notificationType}>
-            {(item.notification_type || 'notification').replace('_', ' ').toUpperCase()}
-          </Text>
-
-          <Text style={styles.notificationMessage}>
-            {item.message || 'No message provided.'}
-          </Text>
-
-          <Text style={styles.notificationDate}>
-            Ticket #{item.ticket_id} •{' '}
-            {item.created_at
-              ? new Date(item.created_at).toLocaleDateString('en-GB', {
-                  day: '2-digit',
-                  month: 'short',
-                  year: 'numeric',
-                })
-              : '—'}
-          </Text>
-        </View>
-
-        {!item.is_read ? (
-          <TouchableOpacity
-            style={styles.tickButton}
-            onPress={() => handleMarkAsRead(item.notification_id)}
-          >
-            <Text style={styles.tickButtonText}>✓</Text>
-          </TouchableOpacity>
-        ) : (
-          <View style={styles.readBadge}>
-            <Text style={styles.readBadgeText}>✓</Text>
-          </View>
-        )}
-      </View>
-    );
+  const openIssue = (id) => {
+    navigation.navigate('FMIssueDetail', { issueId: id });
   };
 
   const renderHeader = () => (
     <>
-      <View style={styles.header}>
+      <View style={styles.topHeader}>
         <View style={styles.deco1} />
         <View style={styles.deco2} />
 
-        <View style={styles.headerTop}>
+        <View style={styles.headerTopRow}>
           <View>
-            <View style={styles.badge}>
-              <Text style={styles.badgeText}>🏛 CAMPUSCARE</Text>
+            <View style={styles.logoBadge}>
+              <Text style={styles.logoText}>🏛 CAMPUSCARE</Text>
             </View>
-            <Text style={styles.headerSub}>Facility Manager Portal</Text>
+            <Text style={styles.portalText}>Facility Manager Portal</Text>
           </View>
 
-          <TouchableOpacity onPress={handleLogout} style={styles.logoutBtn}>
-            <Text style={styles.logoutText}>Sign Out</Text>
+          <TouchableOpacity onPress={handleLogout} style={styles.signOutBtn}>
+            <Text style={styles.signOutText}>Sign Out</Text>
           </TouchableOpacity>
         </View>
 
-        <Text style={styles.greeting}>Welcome back,</Text>
-        <Text style={styles.username}>{username} 👋</Text>
-
-        <View style={styles.statsRow}>
-          <StatPill label="Total" value={counts.total} color={C.gold} />
-          <StatPill label="Pending" value={counts.pending} color={C.orange} />
-          <StatPill label="Active" value={counts.active} color={C.teal} />
-          <StatPill label="Done" value={counts.resolved} color={C.green} />
-        </View>
+        <Text style={styles.welcomeSmall}>Welcome back,</Text>
+        <Text style={styles.welcomeName}>{username} 👋</Text>
       </View>
 
       {activeTab === 'dashboard' && (
         <>
-          <View style={styles.searchWrap}>
-            <View style={styles.searchBox}>
-              <Text style={styles.searchIcon}>🔍</Text>
-
-              <TextInput
-                style={styles.searchInput}
-                placeholder="Search issues by title, category, status, priority or ticket..."
-                placeholderTextColor="#CBD5E1"
-                value={searchInput}
-                onChangeText={setSearchInput}
-                autoCorrect={false}
-                autoCapitalize="none"
-              />
-
-              {searchInput.length > 0 && (
-                <TouchableOpacity
-                  onPress={() => {
-                    setSearchInput('');
-                    setSearch('');
-                  }}
-                >
-                  <Text style={{ color: '#CBD5E1', fontSize: 16 }}>✕</Text>
-                </TouchableOpacity>
-              )}
-            </View>
+          <View style={styles.searchBox}>
+            <Text style={styles.searchIcon}>🔍</Text>
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search issues by title, category, status, priority or ticket..."
+              placeholderTextColor="#CBD5E1"
+              value={searchInput}
+              onChangeText={setSearchInput}
+            />
+            {searchInput.length > 0 && (
+              <TouchableOpacity
+                onPress={() => {
+                  setSearchInput('');
+                  setSearch('');
+                }}
+              >
+                <Text style={styles.clearText}>✕</Text>
+              </TouchableOpacity>
+            )}
           </View>
 
           <View style={styles.filterWrap}>
@@ -509,11 +396,12 @@ export default function FMDashboardScreen({ navigation }) {
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
-              contentContainerStyle={{ gap: 6, paddingRight: 16 }}
+              contentContainerStyle={{ gap: 8, paddingRight: 18 }}
             >
               {STATUS_FILTERS.map(item => {
                 const active = statusF === item;
                 const meta = STATUS_META[item];
+                const count = statusCounts[item] || 0;
 
                 return (
                   <TouchableOpacity
@@ -528,7 +416,7 @@ export default function FMDashboardScreen({ navigation }) {
                     onPress={() => setStatusF(item)}
                   >
                     <Text style={[styles.chipText, active && { color: '#fff' }]}>
-                      {item === 'All' ? '🗂 All' : `${meta?.dot} ${meta?.label}`}
+                      {item === 'All' ? `🗂 All (${count})` : `${meta?.dot} ${meta?.label} (${count})`}
                     </Text>
                   </TouchableOpacity>
                 );
@@ -536,13 +424,13 @@ export default function FMDashboardScreen({ navigation }) {
             </ScrollView>
           </View>
 
-          <View style={[styles.filterWrap, { marginTop: 4 }]}>
+          <View style={styles.filterWrap}>
             <Text style={styles.filterLabel}>CATEGORY</Text>
 
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
-              contentContainerStyle={{ gap: 6, paddingRight: 16 }}
+              contentContainerStyle={{ gap: 8, paddingRight: 18 }}
             >
               {CATEGORY_FILTERS.map(item => {
                 const active = categoryF === item;
@@ -565,12 +453,41 @@ export default function FMDashboardScreen({ navigation }) {
             </ScrollView>
           </View>
 
+          <View style={styles.filterWrap}>
+            <Text style={styles.filterLabel}>DATE</Text>
+
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ gap: 8, paddingRight: 18 }}
+            >
+              {DATE_FILTERS.map(item => {
+                const active = dateF === item;
+
+                return (
+                  <TouchableOpacity
+                    key={item}
+                    style={[
+                      styles.chip,
+                      active && { backgroundColor: C.gold, borderColor: C.gold },
+                    ]}
+                    onPress={() => setDateF(item)}
+                  >
+                    <Text style={[styles.chipText, active && { color: '#fff' }]}>
+                      {item === 'All' ? '📅 All Dates' : `📅 ${item}`}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+
           <View style={styles.resultsBar}>
             <Text style={styles.resultsText}>
               {filtered.length} issue{filtered.length !== 1 ? 's' : ''} found
             </Text>
 
-            <TouchableOpacity onPress={loadAllData}>
+            <TouchableOpacity onPress={() => loadAllData(false)}>
               <Text style={styles.refreshBtn}>↺ Refresh</Text>
             </TouchableOpacity>
           </View>
@@ -614,6 +531,182 @@ export default function FMDashboardScreen({ navigation }) {
     </>
   );
 
+  const renderIssueCard = (item) => {
+    const id = item.ticket_id || item.id;
+    const s = STATUS_META[item.status] || STATUS_META.pending;
+
+    const categoryName = getCategoryName(item);
+    const icon = CAT_ICONS[categoryName] || '📋';
+    const bg = CAT_BG[categoryName] || '#F8FAFC';
+
+    return (
+      <TouchableOpacity
+        key={String(id)}
+        style={[styles.card, { borderLeftColor: s.border }]}
+        onPress={() => openIssue(id)}
+        activeOpacity={0.82}
+      >
+        <View style={styles.cardRow1}>
+          <View style={styles.cardLeft}>
+            <View style={[styles.catBox, { backgroundColor: bg }]}>
+              <Text style={styles.catIcon}>{icon}</Text>
+            </View>
+
+            <View style={{ flex: 1 }}>
+              <Text style={styles.cardTitle}>
+                {item.title || categoryName || 'Issue'}
+              </Text>
+              <Text style={styles.cardId}>Ticket #{id}</Text>
+            </View>
+          </View>
+
+          <View
+            style={[
+              styles.statusPill,
+              { backgroundColor: s.bg, borderColor: s.border },
+            ]}
+          >
+            <Text style={[styles.statusLabel, { color: s.color }]}>
+              {s.dot} {s.label}
+            </Text>
+          </View>
+        </View>
+
+        <Text style={styles.cardDesc} numberOfLines={2}>
+          {item.description || 'No description provided.'}
+        </Text>
+
+        <View style={styles.cardDetails}>
+          <Text style={styles.detailLine}>
+            👷 Assigned worker: {item.assigned_worker || item.assigned_worker_username || item.worker_username || 'Not assigned'}
+          </Text>
+
+          <Text style={styles.detailLine}>
+            🗓 Submission date: {item.created_at ? new Date(item.created_at).toLocaleDateString() : '—'}
+          </Text>
+
+          <Text style={styles.detailLine}>
+            🏷 Priority: {item.priority ? item.priority.toUpperCase() : 'MEDIUM'}
+          </Text>
+        </View>
+      </TouchableOpacity>
+    );
+  };
+
+  const renderWorkerCard = (worker) => {
+    const isActive = worker.is_active !== false;
+
+    return (
+      <View key={String(worker.user_id)} style={styles.workerCard}>
+        <View style={styles.workerTopRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.workerName}>👷 {worker.username}</Text>
+            <Text style={styles.workerEmail}>{worker.email}</Text>
+          </View>
+
+          <View
+            style={[
+              styles.workerStatusPill,
+              {
+                backgroundColor: isActive ? '#F0FDF4' : '#FEF2F2',
+                borderColor: isActive ? '#86EFAC' : '#FECACA',
+              },
+            ]}
+          >
+            <Text
+              style={[
+                styles.workerStatusText,
+                { color: isActive ? '#15803D' : '#DC2626' },
+              ]}
+            >
+              {isActive ? 'Active' : 'Inactive'}
+            </Text>
+          </View>
+        </View>
+
+        <View style={styles.workerButtonRow}>
+          <TouchableOpacity
+            style={[
+              styles.workerActionBtn,
+              !isActive ? styles.workerActiveBright : styles.workerInactiveDull,
+            ]}
+            onPress={() => handleWorkerStatusChange(worker.user_id, true)}
+            disabled={isActive}
+          >
+            <Text
+              style={[
+                styles.workerActionText,
+                { color: !isActive ? '#15803D' : '#94A3B8' },
+              ]}
+            >
+              Activate
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[
+              styles.workerActionBtn,
+              isActive ? styles.workerDeactiveBright : styles.workerInactiveDull,
+            ]}
+            onPress={() => handleWorkerStatusChange(worker.user_id, false)}
+            disabled={!isActive}
+          >
+            <Text
+              style={[
+                styles.workerActionText,
+                { color: isActive ? '#DC2626' : '#94A3B8' },
+              ]}
+            >
+              Deactivate
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  };
+
+  const renderNotificationCard = (n) => {
+    const id = n.notification_id || n.id;
+
+    return (
+      <TouchableOpacity
+        key={String(id)}
+        style={[
+          styles.notificationCard,
+          !n.is_read && { borderLeftColor: C.gold, backgroundColor: '#FFFBEB' },
+        ]}
+        onPress={() => handleMarkAsRead(id)}
+        activeOpacity={0.85}
+      >
+        <Text style={styles.notifIcon}>{getNotificationIcon(n)}</Text>
+
+        <View style={{ flex: 1 }}>
+          <Text style={styles.notifTitle}>
+            {n.title || n.message || 'Notification'}
+          </Text>
+
+          {n.message && n.title && (
+            <Text style={styles.notifMsg}>{n.message}</Text>
+          )}
+
+          <Text style={styles.notifDate}>
+            {n.created_at ? new Date(n.created_at).toLocaleString() : ''}
+          </Text>
+        </View>
+
+        {!n.is_read && <View style={styles.unreadBadge} />}
+      </TouchableOpacity>
+    );
+  };
+
+  const renderEmpty = (icon, title, subtitle) => (
+    <View style={styles.empty}>
+      <Text style={{ fontSize: 52 }}>{icon}</Text>
+      <Text style={styles.emptyTitle}>{title}</Text>
+      <Text style={styles.emptySub}>{subtitle}</Text>
+    </View>
+  );
+
   const renderContent = () => {
     if (activeTab === 'workers') {
       if (workers.length === 0) {
@@ -642,22 +735,16 @@ export default function FMDashboardScreen({ navigation }) {
     return filtered.map(renderIssueCard);
   };
 
-  const renderEmpty = (icon, title, subtitle) => (
-    <View style={styles.empty}>
-      <Text style={{ fontSize: 52 }}>{icon}</Text>
-      <Text style={styles.emptyTitle}>{title}</Text>
-      <Text style={styles.emptySub}>{subtitle}</Text>
-    </View>
-  );
-
-  if (loading) return (
-    <View style={styles.loadingScreen}>
-      <View style={styles.loadingCard}>
-        <ActivityIndicator size="large" color={C.navy} />
-        <Text style={styles.loadingText}>Fetching dashboard...</Text>
+  if (loading) {
+    return (
+      <View style={styles.loadingScreen}>
+        <View style={styles.loadingCard}>
+          <ActivityIndicator size="large" color={C.navy} />
+          <Text style={styles.loadingText}>Fetching dashboard...</Text>
+        </View>
       </View>
-    </View>
-  );
+    );
+  }
 
   return (
     <SafeAreaView style={styles.root}>
@@ -688,7 +775,10 @@ export default function FMDashboardScreen({ navigation }) {
             <TouchableOpacity
               key={n.key}
               style={styles.navItem}
-              onPress={() => setActiveTab(n.key)}
+              onPress={() => {
+                setActiveTab(n.key);
+                loadAllData(false);
+              }}
             >
               <View>
                 <Text style={styles.navIcon}>{n.icon}</Text>
@@ -711,528 +801,450 @@ export default function FMDashboardScreen({ navigation }) {
   );
 }
 
-function StatPill({ label, value, color }) {
-  return (
-    <View style={[styles.statPill, { borderTopColor: color }]}>
-      <Text style={[styles.statValue, { color }]}>{value}</Text>
-      <Text style={styles.statLabel}>{label}</Text>
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#F8F4EF' },
-  scroll: { flex: 1 },
-
-  loadingScreen: {
+  root: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#F8F4EF',
+    backgroundColor: C.cream,
   },
-  loadingCard: {
-    backgroundColor: '#fff',
-    borderRadius: 20,
-    padding: 32,
-    alignItems: 'center',
-    shadowColor: '#0B1F3A',
-    shadowOpacity: 0.1,
-    shadowRadius: 16,
-    elevation: 6,
+  scroll: {
+    flex: 1,
   },
-  loadingText: {
-    color: '#64748B',
-    fontSize: 14,
-    marginTop: 12,
+  list: {
+    paddingBottom: 110,
   },
-
-  header: {
-    backgroundColor: '#0B1F3A',
-    paddingHorizontal: 22,
-    paddingTop: Platform.OS === 'android' ? 44 : 16,
-    paddingBottom: 22,
+  topHeader: {
+    backgroundColor: C.navy,
+    paddingHorizontal: 20,
+    paddingTop: 18,
+    paddingBottom: 26,
     overflow: 'hidden',
   },
   deco1: {
     position: 'absolute',
-    top: -40,
-    right: -40,
-    width: 180,
-    height: 180,
-    borderRadius: 90,
-    backgroundColor: 'rgba(240,165,0,0.12)',
+    width: 190,
+    height: 190,
+    borderRadius: 95,
+    backgroundColor: 'rgba(10,147,150,0.18)',
+    left: -65,
+    bottom: -90,
   },
   deco2: {
     position: 'absolute',
-    bottom: -20,
-    left: -20,
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    backgroundColor: 'rgba(10,147,150,0.18)',
+    width: 220,
+    height: 220,
+    borderRadius: 110,
+    backgroundColor: 'rgba(240,165,0,0.10)',
+    right: -85,
+    top: -80,
   },
-  headerTop: {
+  headerTopRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    marginBottom: 16,
-    zIndex: 1,
+    marginBottom: 28,
   },
-  badge: {
-    backgroundColor: 'rgba(240,165,0,0.2)',
+  logoBadge: {
+    alignSelf: 'flex-start',
     borderWidth: 1,
-    borderColor: 'rgba(240,165,0,0.3)',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 6,
-    marginBottom: 4,
+    borderColor: 'rgba(240,165,0,0.45)',
+    backgroundColor: 'rgba(240,165,0,0.14)',
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 8,
   },
-  badgeText: {
-    color: '#F0A500',
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 2,
-  },
-  headerSub: {
-    color: 'rgba(255,255,255,0.5)',
-    fontSize: 12,
-  },
-  logoutBtn: {
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.2)',
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderRadius: 20,
-  },
-  logoutText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  greeting: {
-    color: 'rgba(255,255,255,0.7)',
-    fontSize: 14,
-    zIndex: 1,
-  },
-  username: {
-    color: '#fff',
-    fontSize: 20,
-    fontWeight: '800',
-    marginBottom: 16,
-    zIndex: 1,
-  },
-
-  statsRow: {
-    flexDirection: 'row',
-    gap: 8,
-    zIndex: 1,
-  },
-  statPill: {
-    flex: 1,
-    backgroundColor: 'rgba(255,255,255,0.08)',
-    borderRadius: 12,
-    paddingVertical: 10,
-    alignItems: 'center',
-    borderTopWidth: 3,
-  },
-  statValue: {
-    fontSize: 22,
+  logoText: {
+    color: C.gold,
     fontWeight: '900',
+    letterSpacing: 2,
+    fontSize: 11,
   },
-  statLabel: {
-    color: 'rgba(255,255,255,0.5)',
-    fontSize: 9,
-    fontWeight: '700',
-    letterSpacing: 0.5,
-    marginTop: 2,
-    textTransform: 'uppercase',
+  portalText: {
+    color: 'rgba(255,255,255,0.6)',
+    marginTop: 8,
+    fontSize: 13,
   },
-
-  searchWrap: {
-    padding: 16,
-    paddingBottom: 8,
+  signOutBtn: {
+    minWidth: 96,
+    height: 40,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.35)',
+    paddingHorizontal: 14,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  signOutText: {
+    color: '#fff',
+    fontWeight: '800',
+  },
+  welcomeSmall: {
+    color: 'rgba(255,255,255,0.72)',
+    fontSize: 18,
+  },
+  welcomeName: {
+    color: '#fff',
+    fontSize: 26,
+    fontWeight: '900',
+    marginTop: 3,
   },
   searchBox: {
+    marginHorizontal: 16,
+    marginTop: 18,
+    marginBottom: 14,
+    borderWidth: 1.5,
+    borderColor: C.border,
+    backgroundColor: '#fff',
+    borderRadius: 18,
+    paddingHorizontal: 14,
+    height: 54,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#fff',
-    borderRadius: 14,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderWidth: 1.5,
-    borderColor: '#E2E8F0',
-    shadowColor: '#0B1F3A',
-    shadowOpacity: 0.07,
-    shadowRadius: 10,
+    shadowColor: C.navy,
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
     elevation: 2,
   },
   searchIcon: {
-    fontSize: 16,
+    fontSize: 18,
     marginRight: 10,
   },
   searchInput: {
     flex: 1,
-    fontSize: 13,
-    color: '#0B1F3A',
+    color: C.navy,
+    fontSize: 14,
   },
-
+  clearText: {
+    color: '#94A3B8',
+    fontSize: 16,
+    fontWeight: '900',
+    padding: 6,
+  },
   filterWrap: {
-    paddingLeft: 16,
-    marginBottom: 4,
+    paddingHorizontal: 16,
+    marginBottom: 12,
   },
   filterLabel: {
-    fontSize: 9,
-    fontWeight: '800',
-    color: '#64748B',
-    letterSpacing: 2,
-    textTransform: 'uppercase',
-    marginBottom: 6,
+    color: C.slate,
+    fontWeight: '900',
+    fontSize: 11,
+    letterSpacing: 3,
+    marginBottom: 8,
   },
   chip: {
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderRadius: 20,
     borderWidth: 1.5,
-    borderColor: '#E2E8F0',
+    borderColor: C.border,
     backgroundColor: '#fff',
+    borderRadius: 22,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
   },
   chipText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#64748B',
+    color: C.slate,
+    fontWeight: '800',
+    fontSize: 13,
   },
-
   resultsBar: {
+    paddingHorizontal: 16,
+    marginBottom: 10,
+    marginTop: 2,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
   },
   resultsText: {
-    fontSize: 12,
-    color: '#64748B',
-    fontWeight: '600',
+    color: C.slate,
+    fontWeight: '800',
   },
   refreshBtn: {
-    fontSize: 12,
-    color: '#0B1F3A',
-    fontWeight: '700',
+    color: C.navy,
+    fontWeight: '900',
   },
-
   errorBox: {
     marginHorizontal: 16,
-    backgroundColor: '#FEF2F2',
-    borderRadius: 12,
+    marginBottom: 12,
     padding: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    backgroundColor: '#FEF2F2',
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#FECACA',
   },
   errorText: {
-    color: '#991B1B',
-    fontSize: 13,
+    color: C.red,
     flex: 1,
   },
   retryBtn: {
-    backgroundColor: '#DC2626',
+    backgroundColor: C.red,
     paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
+    paddingVertical: 7,
+    borderRadius: 10,
   },
   retryText: {
     color: '#fff',
-    fontWeight: '700',
-    fontSize: 12,
-  },
-
-  list: {
-    paddingBottom: 90,
+    fontWeight: '900',
   },
   card: {
+    marginHorizontal: 16,
+    marginBottom: 12,
     backgroundColor: '#fff',
-    borderRadius: 16,
+    borderRadius: 18,
     padding: 16,
-    marginBottom: 10,
-    marginHorizontal: 14,
     borderLeftWidth: 4,
-    shadowColor: '#0B1F3A',
-    shadowOpacity: 0.07,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 4,
+    borderLeftColor: C.border,
+    shadowColor: C.navy,
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 2,
   },
   cardRow1: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 10,
+    alignItems: 'flex-start',
+    gap: 12,
   },
   cardLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 12,
     flex: 1,
   },
   catBox: {
-    width: 40,
-    height: 40,
-    borderRadius: 10,
-    justifyContent: 'center',
+    width: 46,
+    height: 46,
+    borderRadius: 14,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   catIcon: {
-    fontSize: 18,
+    fontSize: 22,
   },
   cardTitle: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: '#0B1F3A',
-    maxWidth: 130,
+    color: C.navy,
+    fontWeight: '900',
+    fontSize: 15,
+    marginBottom: 3,
   },
   cardId: {
-    fontSize: 11,
-    color: '#64748B',
-    marginTop: 1,
+    color: C.slate,
+    fontWeight: '700',
+    fontSize: 12,
   },
   statusPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    borderWidth: 1,
+    borderRadius: 16,
     paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 20,
-    borderWidth: 1.5,
-  },
-  statusDot: {
-    fontSize: 10,
-    fontWeight: '900',
+    paddingVertical: 6,
   },
   statusLabel: {
-    fontSize: 11,
-    fontWeight: '700',
+    fontWeight: '900',
+    fontSize: 12,
   },
   cardDesc: {
-    fontSize: 13,
-    color: '#64748B',
-    lineHeight: 19,
-    marginBottom: 12,
+    color: C.slate,
+    lineHeight: 20,
+    marginTop: 14,
   },
-  cardFooter: {
+  cardDetails: {
+    borderTopWidth: 1,
+    borderTopColor: '#EEF2F7',
+    marginTop: 14,
+    paddingTop: 12,
+    gap: 6,
+  },
+  detailLine: {
+    color: C.slate,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  workerCard: {
+    marginHorizontal: 16,
+    marginBottom: 12,
+    backgroundColor: '#fff',
+    borderRadius: 18,
+    padding: 16,
+    borderLeftWidth: 4,
+    borderLeftColor: '#E2E8F0',
+    shadowColor: C.navy,
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  workerTopRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-  },
-  cardMeta: {
-    fontSize: 12,
-    color: '#64748B',
-  },
-  cardDate: {
-    fontSize: 11,
-    color: '#CBD5E1',
-  },
-  tapHintRow: {
-    marginTop: 10,
-    paddingTop: 10,
-    borderTopWidth: 1,
-    borderTopColor: '#F1F5F9',
-  },
-  tapHintText: {
-    fontSize: 12,
-    color: '#0B1F3A',
-    fontWeight: '700',
-    textAlign: 'right',
-  },
-
-  workerCard: {
-    backgroundColor: '#fff',
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 10,
-    marginHorizontal: 14,
-    flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     gap: 12,
-    shadowColor: '#0B1F3A',
-    shadowOpacity: 0.07,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 4,
-  },
-  workerIconBox: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
-    backgroundColor: '#ECFEFF',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  workerIcon: {
-    fontSize: 22,
   },
   workerName: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: '#0B1F3A',
+    color: C.navy,
+    fontWeight: '900',
+    fontSize: 18,
   },
   workerEmail: {
-    fontSize: 12,
-    color: '#64748B',
-    marginTop: 2,
+    color: C.slate,
+    fontWeight: '800',
+    fontSize: 14,
+    marginTop: 4,
   },
-  workerId: {
-    fontSize: 11,
-    color: '#CBD5E1',
-    marginTop: 2,
-  },
-  workerStatus: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 20,
+  workerStatusPill: {
+    borderWidth: 1.5,
+    borderRadius: 18,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
   },
   workerStatusText: {
-    fontSize: 11,
-    fontWeight: '800',
-  },
-
-  notificationCard: {
-    backgroundColor: '#fff',
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 10,
-    marginHorizontal: 14,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    shadowColor: '#0B1F3A',
-    shadowOpacity: 0.07,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 4,
-  },
-  notificationUnread: {
-    borderLeftWidth: 4,
-    borderLeftColor: '#F0A500',
-  },
-  notificationRead: {
-    borderLeftWidth: 4,
-    borderLeftColor: '#CBD5E1',
-    opacity: 0.78,
-  },
-  notificationIconBox: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
-    backgroundColor: '#FFFBEB',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  notificationIcon: {
-    fontSize: 22,
-  },
-  notificationType: {
-    fontSize: 11,
-    color: '#0B1F3A',
     fontWeight: '900',
-    letterSpacing: 0.8,
-  },
-  notificationMessage: {
     fontSize: 13,
-    color: '#64748B',
+  },
+  workerButtonRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 18,
+  },
+  workerActionBtn: {
+    flex: 1,
+    height: 52,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+  },
+  workerActiveBright: {
+    backgroundColor: '#F0FDF4',
+    borderColor: '#86EFAC',
+  },
+  workerDeactiveBright: {
+    backgroundColor: '#FEF2F2',
+    borderColor: '#FECACA',
+  },
+  workerInactiveDull: {
+    backgroundColor: '#F8FAFC',
+    borderColor: '#E2E8F0',
+    opacity: 0.55,
+  },
+  workerActionText: {
+    fontWeight: '900',
+    fontSize: 15,
+  },
+  notificationCard: {
+    marginHorizontal: 16,
+    marginBottom: 12,
+    backgroundColor: '#fff',
+    borderRadius: 18,
+    padding: 16,
+    borderLeftWidth: 4,
+    borderLeftColor: C.border,
+    flexDirection: 'row',
+    gap: 12,
+    alignItems: 'flex-start',
+  },
+  notifIcon: {
+    fontSize: 24,
+  },
+  notifTitle: {
+    color: C.navy,
+    fontWeight: '900',
+    fontSize: 14,
+  },
+  notifMsg: {
+    color: C.slate,
     marginTop: 4,
     lineHeight: 18,
   },
-  notificationDate: {
+  notifDate: {
+    color: '#94A3B8',
+    marginTop: 6,
     fontSize: 11,
-    color: '#CBD5E1',
-    marginTop: 5,
+    fontWeight: '700',
   },
-  tickButton: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: '#0B1F3A',
-    justifyContent: 'center',
-    alignItems: 'center',
+  unreadBadge: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: C.gold,
+    marginTop: 4,
   },
-  tickButtonText: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: '900',
-  },
-  readBadge: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: '#F0FDF4',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  readBadgeText: {
-    color: '#15803D',
-    fontSize: 18,
-    fontWeight: '900',
-  },
-
   empty: {
-    minHeight: 260,
-    justifyContent: 'center',
     alignItems: 'center',
-    paddingBottom: 60,
+    paddingHorizontal: 30,
+    paddingTop: 50,
   },
   emptyTitle: {
-    fontSize: 20,
-    fontWeight: '800',
-    color: '#0B1F3A',
-    marginTop: 12,
+    color: C.navy,
+    fontSize: 22,
+    fontWeight: '900',
+    marginTop: 10,
   },
   emptySub: {
-    fontSize: 14,
-    color: '#64748B',
-    marginTop: 4,
+    color: C.slate,
     textAlign: 'center',
-    paddingHorizontal: 24,
+    marginTop: 6,
   },
-
   navBar: {
-    flexDirection: 'row',
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: 82,
     backgroundColor: '#fff',
     borderTopWidth: 1,
-    borderTopColor: '#E2E8F0',
-    paddingVertical: 10,
-    paddingBottom: Platform.OS === 'ios' ? 24 : 10,
+    borderTopColor: C.border,
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'center',
+    paddingBottom: 10,
   },
   navItem: {
-    flex: 1,
     alignItems: 'center',
+    justifyContent: 'center',
+    flex: 1,
   },
   navIcon: {
-    fontSize: 22,
-    marginBottom: 3,
+    fontSize: 23,
+    textAlign: 'center',
   },
   navLabel: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: '#64748B',
+    color: C.slate,
+    fontWeight: '900',
+    fontSize: 11,
+    letterSpacing: 0.8,
+    marginTop: 5,
     textTransform: 'uppercase',
-    letterSpacing: 0.5,
   },
   unreadDot: {
     position: 'absolute',
-    top: -5,
+    top: -6,
     right: -12,
     minWidth: 18,
     height: 18,
     borderRadius: 9,
-    backgroundColor: '#DC2626',
-    justifyContent: 'center',
+    backgroundColor: C.red,
     alignItems: 'center',
+    justifyContent: 'center',
     paddingHorizontal: 4,
   },
   unreadDotText: {
     color: '#fff',
     fontSize: 10,
     fontWeight: '900',
+  },
+  loadingScreen: {
+    flex: 1,
+    backgroundColor: C.cream,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingCard: {
+    backgroundColor: '#fff',
+    padding: 24,
+    borderRadius: 18,
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 10,
+    color: C.slate,
+    fontWeight: '800',
   },
 });

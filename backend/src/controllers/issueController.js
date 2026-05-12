@@ -23,9 +23,25 @@ const notifyFacilityManagers = async (ticketId, type, message) => {
   }
 };
 
+const ticketSelect = `
+  SELECT
+    t.*,
+    t.created_at AS submitted_at,
+    c.category_name AS category,
+    CONCAT_WS(' - ', l.building_name, l.floor, l.room_number, l.area) AS location_name,
+    creator.username AS creator_username,
+    worker.username AS assigned_worker_name,
+    worker.email AS assigned_worker_email
+  FROM tickets t
+  LEFT JOIN categories c ON t.category_id = c.category_id
+  LEFT JOIN locations l ON t.location_id = l.location_id
+  LEFT JOIN users creator ON t.created_by = creator.user_id
+  LEFT JOIN users worker ON t.assigned_to = worker.user_id
+`;
+
 const getTicketById = async (ticketId) => {
   const result = await db.query(
-    `SELECT * FROM tickets WHERE ticket_id = $1`,
+    `${ticketSelect} WHERE t.ticket_id = $1`,
     [ticketId]
   );
 
@@ -97,39 +113,48 @@ exports.createIssue = async (req, res) => {
 
 // 2. Facility Manager: Get all issues with optional filters
 exports.getAllIssues = async (req, res) => {
-  const { status, category_id, location_id, priority } = req.query;
+  const { status, category_id, location_id, priority, from_date, to_date } = req.query;
 
   const conditions = [];
   const values = [];
 
   if (status) {
     values.push(status);
-    conditions.push(`status = $${values.length}`);
+    conditions.push(`t.status = $${values.length}`);
   }
 
   if (category_id) {
     values.push(category_id);
-    conditions.push(`category_id = $${values.length}`);
+    conditions.push(`t.category_id = $${values.length}`);
   }
 
   if (location_id) {
     values.push(location_id);
-    conditions.push(`location_id = $${values.length}`);
+    conditions.push(`t.location_id = $${values.length}`);
   }
 
   if (priority) {
     values.push(priority);
-    conditions.push(`priority = $${values.length}`);
+    conditions.push(`t.priority = $${values.length}`);
+  }
+
+  if (from_date) {
+    values.push(from_date);
+    conditions.push(`DATE(t.created_at) >= DATE($${values.length})`);
+  }
+
+  if (to_date) {
+    values.push(to_date);
+    conditions.push(`DATE(t.created_at) <= DATE($${values.length})`);
   }
 
   const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
   try {
     const result = await db.query(
-      `SELECT *
-       FROM tickets
+      `${ticketSelect}
        ${whereClause}
-       ORDER BY created_at DESC`,
+       ORDER BY t.created_at DESC`,
       values
     );
 
@@ -150,10 +175,9 @@ exports.getAllIssues = async (req, res) => {
 exports.getMyIssues = async (req, res) => {
   try {
     const result = await db.query(
-      `SELECT *
-       FROM tickets
-       WHERE created_by = $1
-       ORDER BY created_at DESC`,
+      `${ticketSelect}
+       WHERE t.created_by = $1
+       ORDER BY t.created_at DESC`,
       [req.user.id]
     );
 
@@ -174,10 +198,9 @@ exports.getMyIssues = async (req, res) => {
 exports.getAssignedIssues = async (req, res) => {
   try {
     const result = await db.query(
-      `SELECT *
-       FROM tickets
-       WHERE assigned_to = $1
-       ORDER BY updated_at DESC, created_at DESC`,
+      `${ticketSelect}
+       WHERE t.assigned_to = $1
+       ORDER BY t.updated_at DESC, t.created_at DESC`,
       [req.user.id]
     );
 
@@ -539,11 +562,11 @@ exports.addComment = async (req, res) => {
       [comment_text, id, req.user.id]
     );
 
-await notifyFacilityManagers(
-  id,
-  'completion',
-  `Worker added a comment on issue "${ticket.title}": ${comment_text}`
-);
+    await notifyFacilityManagers(
+      id,
+      'status_change',
+      `Worker added a comment on issue "${ticket.title}": ${comment_text}`
+    );
 
     res.status(201).json({
       message: 'Comment added successfully',

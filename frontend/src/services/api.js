@@ -1,28 +1,41 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
+import Constants from 'expo-constants';
 
-// ─────────────────────────────────────────────────────────
-// API URL
-// Browser uses localhost.
-// Expo Go on a physical phone uses your laptop's Wi-Fi IP.
-// Backend must be running on port 5000.
-//
-// HOW TO FIND YOUR LAPTOP IP:
-//   Windows: open cmd → type "ipconfig" → look for "IPv4 Address"
-//   Mac/Linux: open terminal → type "ifconfig" → look for "inet 192.168.x.x"
-// ─────────────────────────────────────────────────────────
+const PORT = 5000;
 
-const LAPTOP_IP = '192.168.1.101'; // ← CHANGE THIS to your actual laptop IP
+/*
+  IMPORTANT:
+  - Web uses localhost.
+  - Expo Go on a real phone uses your laptop IPv4 address.
+  - If phone cannot load data, replace this IP with your real laptop IPv4 from:
+      Windows terminal: ipconfig
+      Look for IPv4 Address under Wi-Fi.
+*/
+const MANUAL_LAPTOP_IP = '192.168.1.101';
+
+const getLaptopIpFromExpo = () => {
+  const hostUri =
+    Constants?.expoConfig?.hostUri ||
+    Constants?.manifest2?.extra?.expoClient?.hostUri ||
+    Constants?.manifest?.debuggerHost;
+
+  if (!hostUri) return null;
+  return hostUri.split(':')[0];
+};
 
 const getBaseUrl = () => {
   if (Platform.OS === 'web') {
-    return 'http://localhost:5000/api';
+    return `http://localhost:${PORT}/api`;
   }
-  // FIX: was single quotes before — must be backticks for template literal to work
-  return `http://${LAPTOP_IP}:5000/api`;
+
+  const detectedIp = getLaptopIpFromExpo();
+  const laptopIp = detectedIp || MANUAL_LAPTOP_IP;
+
+  return `http://${laptopIp}:${PORT}/api`;
 };
 
-const BASE_URL = getBaseUrl();
+export const BASE_URL = getBaseUrl();
 
 console.log('Using API URL:', BASE_URL);
 
@@ -32,9 +45,7 @@ export const saveAuth = async (token, user) => {
   await AsyncStorage.setItem('user', JSON.stringify(user));
 };
 
-export const getToken = async () => {
-  return AsyncStorage.getItem('token');
-};
+export const getToken = async () => AsyncStorage.getItem('token');
 
 export const getUser = async () => {
   const s = await AsyncStorage.getItem('user');
@@ -46,11 +57,35 @@ export const clearAuth = async () => {
   await AsyncStorage.removeItem('user');
 };
 
-// ── Core request helper ───────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────
+const safeJson = async (response) => {
+  const text = await response.text();
+
+  if (!text) return {};
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    return { raw: text };
+  }
+};
+
+const getErrorMessage = (data, fallback) => {
+  return (
+    data?.message ||
+    data?.error ||
+    data?.detail ||
+    data?.raw ||
+    fallback ||
+    'Request failed'
+  );
+};
+
 const request = async (endpoint, method = 'GET', body = null) => {
   const token = await getToken();
 
   const headers = {
+    Accept: 'application/json',
     'Content-Type': 'application/json',
   };
 
@@ -63,29 +98,61 @@ const request = async (endpoint, method = 'GET', body = null) => {
     headers,
   };
 
-  if (body) {
+  if (body !== null) {
     config.body = JSON.stringify(body);
   }
 
-  const response = await fetch(`${BASE_URL}${endpoint}`, config);
-
-  let data = {};
   try {
-    data = await response.json();
+    const response = await fetch(`${BASE_URL}${endpoint}`, config);
+    const data = await safeJson(response);
+
+    console.log(`[API] ${method} ${endpoint}`, {
+      status: response.status,
+      ok: response.ok,
+      data,
+    });
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        await clearAuth();
+      }
+
+      if (response.status === 403) {
+        throw new Error(
+          getErrorMessage(
+            data,
+            'Access denied. You are logged in with a role that is not allowed to use this screen.'
+          )
+        );
+      }
+
+      throw new Error(getErrorMessage(data));
+    }
+
+    return data;
   } catch (err) {
-    data = {};
-  }
+    if (
+      err.message === 'Network request failed' ||
+      err.name === 'TypeError' ||
+      String(err.message).includes('Failed to fetch')
+    ) {
+      throw new Error(
+        `Network request failed. Frontend is trying to reach: ${BASE_URL}. Make sure the backend is running on port ${PORT}. If using Expo Go on a phone, make sure your phone and laptop are on the same Wi-Fi and MANUAL_LAPTOP_IP is correct.`
+      );
+    }
 
-  if (!response.ok) {
-    throw new Error(data.message || data.error || 'Request failed');
+    throw err;
   }
-
-  return data;
 };
 
 // ── AUTH ──────────────────────────────────────────────────
 export const register = async (username, email, password, role) => {
-  return request('/auth/register', 'POST', { username, email, password, role });
+  return request('/auth/register', 'POST', {
+    username,
+    email,
+    password,
+    role,
+  });
 };
 
 export const login = async (email, password) => {
@@ -109,6 +176,10 @@ export const logout = async () => {
 // ── ISSUES: Community Member ──────────────────────────────
 export const getMyIssues = () => {
   return request('/issues/my');
+};
+
+export const createIssue = (issueData) => {
+  return request('/issues', 'POST', issueData);
 };
 
 // ── ISSUES: Facility Manager ──────────────────────────────
@@ -158,69 +229,101 @@ export const addComment = (id, comment_text) => {
   return request(`/issues/${id}/comments`, 'POST', { comment_text });
 };
 
-// ── PHOTO UPLOAD (multipart — cannot use regular request helper) ──
-// Used by Community Member (submit issue) and Worker (completion photo)
+// ── PHOTO UPLOAD ──────────────────────────────────────────
 export const uploadPhoto = async (endpoint, imageUri, imageMimeType = 'image/jpeg') => {
   const token = await getToken();
 
   const formData = new FormData();
   formData.append('photo', {
     uri: imageUri,
-    type: imageMimeType,
-    name: 'photo.jpg',
+    type: imageMimeType || 'image/jpeg',
+    name: imageMimeType?.includes('png') ? 'photo.png' : 'photo.jpg',
   });
 
-  // IMPORTANT: Do NOT set Content-Type manually here.
-  // React Native's fetch sets it automatically with the correct boundary.
-  const response = await fetch(`${BASE_URL}${endpoint}`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
-    body: formData,
-  });
-
-  let data = {};
   try {
-    data = await response.json();
+    const response = await fetch(`${BASE_URL}${endpoint}`, {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        Authorization: token ? `Bearer ${token}` : '',
+      },
+      body: formData,
+    });
+
+    const data = await safeJson(response);
+
+    console.log(`[API-UPLOAD] POST ${endpoint}`, {
+      status: response.status,
+      ok: response.ok,
+      data,
+    });
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        await clearAuth();
+      }
+
+      throw new Error(getErrorMessage(data, 'Upload failed'));
+    }
+
+    return data;
   } catch (err) {
-    data = {};
-  }
+    if (
+      err.message === 'Network request failed' ||
+      err.name === 'TypeError' ||
+      String(err.message).includes('Failed to fetch')
+    ) {
+      throw new Error(
+        `Upload failed because frontend cannot reach backend at ${BASE_URL}. Check backend, Wi-Fi, and MANUAL_LAPTOP_IP.`
+      );
+    }
 
-  if (!response.ok) {
-    throw new Error(data.message || data.error || 'Upload failed');
+    throw err;
   }
-
-  return data;
 };
 
-// Shortcut helpers for specific upload endpoints
 export const uploadIssueWithPhoto = async (formFields, imageUri, imageMimeType) => {
   const token = await getToken();
 
   const formData = new FormData();
-  formData.append('title',       formFields.title);
+  formData.append('title', formFields.title);
   formData.append('description', formFields.description);
   formData.append('location_id', String(formFields.location_id));
   formData.append('category_id', String(formFields.category_id));
 
   if (imageUri) {
     formData.append('photo', {
-      uri:  imageUri,
+      uri: imageUri,
       type: imageMimeType || 'image/jpeg',
-      name: 'issue_photo.jpg',
+      name: imageMimeType?.includes('png') ? 'issue_photo.png' : 'issue_photo.jpg',
     });
   }
 
   const response = await fetch(`${BASE_URL}/issues`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${token}` },
+    headers: {
+      Accept: 'application/json',
+      Authorization: token ? `Bearer ${token}` : '',
+    },
     body: formData,
   });
 
-  let data = {};
-  try { data = await response.json(); } catch (_) {}
-  if (!response.ok) throw new Error(data.message || data.error || 'Failed to submit issue');
+  const data = await safeJson(response);
+
+  console.log('[API-UPLOAD] POST /issues', {
+    status: response.status,
+    ok: response.ok,
+    data,
+  });
+
+  if (!response.ok) {
+    if (response.status === 401) {
+      await clearAuth();
+    }
+
+    throw new Error(getErrorMessage(data, 'Failed to submit issue'));
+  }
+
   return data;
 };
 
@@ -235,6 +338,18 @@ export const getWorkers = async () => {
 
 export const updateWorkerStatus = (id, is_active) => {
   return request(`/manager/workers/${id}/status`, 'PUT', { is_active });
+};
+
+// ── ADMIN ─────────────────────────────────────────────────
+export const getAdminUsers = async () => {
+  return request('/admin/users');
+};
+
+export const updateAdminUserStatus = async (userId, is_active) => {
+  return request(`/admin/users/${userId}/status`, 'PUT', {
+    is_active,
+    status: is_active ? 'active' : 'inactive',
+  });
 };
 
 // ── NOTIFICATIONS ─────────────────────────────────────────

@@ -7,6 +7,15 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
+    "plugins": [
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow CampusCare to access your photos.",
+          "cameraPermission": "Allow CampusCare to take photos."
+        }
+      ]
+    ],
     "splash": {
       "image": "./assets/icon.png",
       "resizeMode": "contain",
