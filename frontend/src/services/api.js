@@ -12,30 +12,17 @@ const PORT = 5000;
       Windows terminal: ipconfig
       Look for IPv4 Address under Wi-Fi.
 */
-const MANUAL_LAPTOP_IP = '192.168.1.101';
-
-const getLaptopIpFromExpo = () => {
-  const hostUri =
-    Constants?.expoConfig?.hostUri ||
-    Constants?.manifest2?.extra?.expoClient?.hostUri ||
-    Constants?.manifest?.debuggerHost;
-
-  if (!hostUri) return null;
-  return hostUri.split(':')[0];
-};
+const LAPTOP_IP = '192.168.1.101'; // ← CHANGE THIS to your actual laptop IP
 
 const getBaseUrl = () => {
   if (Platform.OS === 'web') {
-    return `http://localhost:${PORT}/api`;
+    return 'http://localhost:5000/api';
   }
-
-  const detectedIp = getLaptopIpFromExpo();
-  const laptopIp = detectedIp || MANUAL_LAPTOP_IP;
-
-  return `http://${laptopIp}:${PORT}/api`;
+  // FIX: was single quotes before — must be backticks for template literal to work
+  return `http://${LAPTOP_IP}:5000/api`;
 };
 
-export const BASE_URL = getBaseUrl();
+const BASE_URL = getBaseUrl();
 
 console.log('Using API URL:', BASE_URL);
 
@@ -137,7 +124,7 @@ const request = async (endpoint, method = 'GET', body = null) => {
       String(err.message).includes('Failed to fetch')
     ) {
       throw new Error(
-        `Network request failed. Frontend is trying to reach: ${BASE_URL}. Make sure the backend is running on port ${PORT}. If using Expo Go on a phone, make sure your phone and laptop are on the same Wi-Fi and MANUAL_LAPTOP_IP is correct.`
+        `Network request failed. Frontend is trying to reach: ${BASE_URL}. Make sure the backend is running on port ${PORT}. If using Expo Go on a phone, make sure your phone and laptop are on the same Wi-Fi and LAPTOP_IP is correct.`
       );
     }
 
@@ -165,6 +152,10 @@ export const login = async (email, password) => {
   return data;
 };
 
+export const forgotPassword = async (email) => {
+  return request('/auth/forgot-password', 'POST', { email });
+};
+
 export const logout = async () => {
   try {
     await request('/auth/logout', 'POST');
@@ -179,7 +170,11 @@ export const getMyIssues = () => {
 };
 
 export const createIssue = (issueData) => {
-  return request('/issues', 'POST', issueData);
+  return uploadIssueWithPhoto(
+    issueData,
+    issueData?.photoUri,
+    issueData?.photoMimeType
+  );
 };
 
 // ── ISSUES: Facility Manager ──────────────────────────────
@@ -230,7 +225,11 @@ export const addComment = (id, comment_text) => {
 };
 
 // ── PHOTO UPLOAD ──────────────────────────────────────────
-export const uploadPhoto = async (endpoint, imageUri, imageMimeType = 'image/jpeg') => {
+export const uploadPhoto = async (
+  endpoint,
+  imageUri,
+  imageMimeType = 'image/jpeg'
+) => {
   const token = await getToken();
 
   const formData = new FormData();
@@ -274,7 +273,7 @@ export const uploadPhoto = async (endpoint, imageUri, imageMimeType = 'image/jpe
       String(err.message).includes('Failed to fetch')
     ) {
       throw new Error(
-        `Upload failed because frontend cannot reach backend at ${BASE_URL}. Check backend, Wi-Fi, and MANUAL_LAPTOP_IP.`
+        `Upload failed because frontend cannot reach backend at ${BASE_URL}. Check backend, Wi-Fi, and LAPTOP_IP.`
       );
     }
 
@@ -282,10 +281,15 @@ export const uploadPhoto = async (endpoint, imageUri, imageMimeType = 'image/jpe
   }
 };
 
-export const uploadIssueWithPhoto = async (formFields, imageUri, imageMimeType) => {
+export const uploadIssueWithPhoto = async (
+  formFields,
+  imageUri,
+  imageMimeType
+) => {
   const token = await getToken();
 
   const formData = new FormData();
+
   formData.append('title', formFields.title);
   formData.append('description', formFields.description);
   formData.append('location_id', String(formFields.location_id));
@@ -360,3 +364,51 @@ export const getMyNotifications = async () => {
 export const markNotificationAsRead = async (notificationId) => {
   return request(`/issues/notifications/${notificationId}/read`, 'PUT');
 };
+
+// ── STATIC LOOKUPS USED BY COMMUNITY MEMBER SUBMISSION ──
+// These should match backend/database seed IDs.
+export const CATEGORIES = [
+  { category_id: 1, category_name: 'Electrical' },
+  { category_id: 2, category_name: 'Plumbing' },
+  { category_id: 3, category_name: 'Furniture' },
+  { category_id: 4, category_name: 'Cleaning' },
+  { category_id: 5, category_name: 'Air Conditioning' },
+];
+
+export const LOCATIONS = [
+  {
+    location_id: 1,
+    building_name: 'Building A',
+    floor: '1',
+    room_number: '101',
+    area: 'North Wing',
+  },
+  {
+    location_id: 2,
+    building_name: 'Building B',
+    floor: '2',
+    room_number: '205',
+    area: 'South Wing',
+  },
+  {
+    location_id: 3,
+    building_name: 'Library',
+    floor: 'Ground',
+    room_number: 'L1',
+    area: 'Main Area',
+  },
+  {
+    location_id: 4,
+    building_name: 'Cafeteria',
+    floor: 'Ground',
+    room_number: 'C1',
+    area: 'Food Court',
+  },
+  {
+    location_id: 5,
+    building_name: 'Parking Area',
+    floor: 'Outdoor',
+    room_number: 'P1',
+    area: 'East Side',
+  },
+];

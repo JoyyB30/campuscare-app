@@ -1,3 +1,4 @@
+// src/screens/IssueDetailScreen.js
 import React, { useEffect, useState } from 'react';
 import {
   View,
@@ -12,11 +13,13 @@ import {
   StatusBar,
   TextInput,
 } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 
 import {
   getIssueById,
   updateIssueStatus,
   addComment,
+  uploadCompletionPhoto,
 } from '../services/api';
 
 const C = {
@@ -86,6 +89,8 @@ export default function IssueDetailScreen({ route, navigation }) {
 
   const [issue, setIssue] = useState(null);
   const [comment, setComment] = useState('');
+  const [photo, setPhoto] = useState(null);
+  const [photoMimeType, setPhotoMimeType] = useState('image/jpeg');
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -117,7 +122,6 @@ export default function IssueDetailScreen({ route, navigation }) {
     try {
       const result = await updateIssueStatus(issueId, 'in_progress');
       setIssue(result.issue || { ...issue, status: 'in_progress' });
-
       Alert.alert('✅ Updated', 'Task marked as in progress.');
       await fetchIssue();
     } catch (err) {
@@ -138,7 +142,6 @@ export default function IssueDetailScreen({ route, navigation }) {
     try {
       await addComment(issueId, comment.trim());
       setComment('');
-
       Alert.alert('✅ Comment Added', 'Your comment was sent to the manager.');
       await fetchIssue();
     } catch (err) {
@@ -148,12 +151,66 @@ export default function IssueDetailScreen({ route, navigation }) {
     }
   };
 
+  const takeLivePhoto = async () => {
+    const permission = await ImagePicker.requestCameraPermissionsAsync();
+
+    if (!permission.granted) {
+      Alert.alert('Permission needed', 'Please allow camera access.');
+      return;
+    }
+
+    const result = await ImagePicker.launchCameraAsync({
+      allowsEditing: true,
+      quality: 0.75,
+    });
+
+    if (!result.canceled) {
+      const asset = result.assets[0];
+      setPhoto(asset.uri);
+      setPhotoMimeType(asset.mimeType || 'image/jpeg');
+    }
+  };
+
+  const chooseCompletionPhoto = async () => {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+    if (!permission.granted) {
+      Alert.alert('Permission needed', 'Please allow photo access.');
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      quality: 0.75,
+    });
+
+    if (!result.canceled) {
+      const asset = result.assets[0];
+      setPhoto(asset.uri);
+      setPhotoMimeType(asset.mimeType || 'image/jpeg');
+    }
+  };
+
   const handleFinishWork = async () => {
+    if (!photo) {
+      Alert.alert(
+        'Completion Photo Required',
+        'Take or choose a completion photo before submitting.'
+      );
+      return;
+    }
+
     setActionLoading(true);
 
     try {
-      const result = await updateIssueStatus(issueId, 'resolved');
-      setIssue(result.issue || { ...issue, status: 'resolved' });
+      await uploadCompletionPhoto(issueId, photo, photoMimeType);
+
+      try {
+        await updateIssueStatus(issueId, 'resolved');
+      } catch (statusErr) {
+        console.log('Resolve after upload:', statusErr.message);
+      }
 
       Alert.alert(
         '✅ Work Submitted',
@@ -250,7 +307,11 @@ export default function IssueDetailScreen({ route, navigation }) {
           <DetailRow label="Category" value={getCategoryName(issue)} />
           <DetailRow
             label="Location"
-            value={issue.location || issue.location_name || `Location #${issue.location_id || '—'}`}
+            value={
+              issue.location ||
+              issue.location_name ||
+              `Location #${issue.location_id || '—'}`
+            }
           />
           <DetailRow label="Priority" value={(issue.priority || 'medium').toUpperCase()} />
         </View>
@@ -286,6 +347,33 @@ export default function IssueDetailScreen({ route, navigation }) {
             disabled={disabled}
           >
             <Text style={styles.actionText}>🔧 Mark as In Progress</Text>
+          </TouchableOpacity>
+
+          <Text style={styles.label}>Completion Photo</Text>
+
+          {photo ? (
+            <Image source={{ uri: photo }} style={styles.previewPhoto} resizeMode="cover" />
+          ) : (
+            <View style={styles.uploadPlaceholder}>
+              <Text style={{ fontSize: 34 }}>📸</Text>
+              <Text style={styles.noPhotoText}>No completion photo selected</Text>
+            </View>
+          )}
+
+          <TouchableOpacity
+            style={[styles.photoBtn, disabled && styles.disabled]}
+            onPress={takeLivePhoto}
+            disabled={disabled}
+          >
+            <Text style={styles.photoBtnText}>📸 Take Live Completion Photo</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.photoBtnAlt, disabled && styles.disabled]}
+            onPress={chooseCompletionPhoto}
+            disabled={disabled}
+          >
+            <Text style={styles.photoBtnAltText}>🖼️ Choose Completion Photo</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -507,6 +595,58 @@ const styles = StyleSheet.create({
 
   actionText: {
     color: '#fff',
+    fontWeight: '900',
+  },
+
+  label: {
+    color: C.navy,
+    fontWeight: '900',
+    marginBottom: 8,
+  },
+
+  uploadPlaceholder: {
+    height: 145,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: C.border,
+    backgroundColor: '#F8FAFC',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+
+  previewPhoto: {
+    height: 210,
+    borderRadius: 14,
+    backgroundColor: '#E2E8F0',
+    marginBottom: 12,
+  },
+
+  photoBtn: {
+    backgroundColor: C.navy,
+    borderRadius: 14,
+    paddingVertical: 14,
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+
+  photoBtnText: {
+    color: '#fff',
+    fontWeight: '900',
+  },
+
+  photoBtnAlt: {
+    backgroundColor: '#FFFBEB',
+    borderWidth: 1,
+    borderColor: '#FCD34D',
+    borderRadius: 14,
+    paddingVertical: 14,
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+
+  photoBtnAltText: {
+    color: '#92400E',
     fontWeight: '900',
   },
 

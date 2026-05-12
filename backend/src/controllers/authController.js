@@ -63,9 +63,22 @@ exports.register = async (req, res) => {
       [username, email, hashedPassword, role]
     );
 
+    const user = newUser.rows[0];
+
+    const token = jwt.sign(
+      {
+        id: user.user_id,
+        role: user.role,
+        email: user.email
+      },
+      process.env.JWT_SECRET || 'campuscare_secret_key',
+      { expiresIn: '7d' }
+    );
+
     res.status(201).json({
       message: 'User registered successfully',
-      user: newUser.rows[0]
+      token,
+      user
     });
   } catch (err) {
     console.error('Register error:', err);
