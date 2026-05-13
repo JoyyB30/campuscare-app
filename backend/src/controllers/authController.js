@@ -1,7 +1,6 @@
 const db = require('../db');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const sendResetEmail = require('../utils/mailer');
 
 const allowedRoles = ['community_member', 'facility_manager', 'worker', 'admin'];
 
@@ -9,14 +8,27 @@ const isValidEmail = (email) => {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 };
 
+const createToken = (user) => {
+  return jwt.sign(
+    {
+      id: user.user_id,
+      role: user.role,
+      email: user.email
+    },
+    process.env.JWT_SECRET || 'campuscare_secret_key',
+    { expiresIn: '30d' }
+  );
+};
+
 // REGISTER
 exports.register = async (req, res) => {
-  const { username, email, password, role } = req.body;
+  const username = req.body.username || req.body.name;
+  const { email, password, role } = req.body;
 
   if (!username || !email || !password || !role) {
     return res.status(400).json({
       error: 'Missing required fields',
-      message: 'username, email, password, and role are required'
+      message: 'name/username, email, password, and role are required'
     });
   }
 
@@ -56,33 +68,33 @@ exports.register = async (req, res) => {
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    const newUser = await db.query(
+    const result = await db.query(
       `INSERT INTO users (username, email, password, role, is_active)
        VALUES ($1, $2, $3, $4, true)
        RETURNING user_id, username, email, role, is_active, created_at`,
       [username, email, hashedPassword, role]
     );
 
-    const user = newUser.rows[0];
+    const user = result.rows[0];
+    const token = createToken(user);
 
-    const token = jwt.sign(
-      {
-        id: user.user_id,
-        role: user.role,
-        email: user.email
-      },
-      process.env.JWT_SECRET || 'campuscare_secret_key',
-      { expiresIn: '7d' }
-    );
-
-    res.status(201).json({
+    return res.status(201).json({
       message: 'User registered successfully',
       token,
-      user
+      user: {
+        id: user.user_id,
+        user_id: user.user_id,
+        username: user.username,
+        name: user.username,
+        email: user.email,
+        role: user.role,
+        is_active: user.is_active,
+        created_at: user.created_at
+      }
     });
   } catch (err) {
     console.error('Register error:', err);
-    res.status(500).json({
+    return res.status(500).json({
       error: 'Registration failed',
       detail: err.message
     });
@@ -138,21 +150,16 @@ exports.login = async (req, res) => {
       });
     }
 
-    const token = jwt.sign(
-      {
-        id: user.user_id,
-        role: user.role
-      },
-      process.env.JWT_SECRET,
-      { expiresIn: '30d' }
-    );
+    const token = createToken(user);
 
-    res.status(200).json({
+    return res.status(200).json({
       message: 'Login successful',
       token,
       user: {
         id: user.user_id,
+        user_id: user.user_id,
         username: user.username,
+        name: user.username,
         email: user.email,
         role: user.role,
         is_active: user.is_active
@@ -160,7 +167,7 @@ exports.login = async (req, res) => {
     });
   } catch (err) {
     console.error('Login error:', err);
-    res.status(500).json({
+    return res.status(500).json({
       error: 'Login failed',
       detail: err.message
     });
@@ -169,12 +176,12 @@ exports.login = async (req, res) => {
 
 // LOGOUT
 exports.logout = async (req, res) => {
-  res.status(200).json({
+  return res.status(200).json({
     message: 'Logged out successfully. Please clear the token on the frontend.'
   });
 };
 
-// FORGOT PASSWORD - Optional, using Ethereal test email
+// FORGOT PASSWORD - simplified project version without mailer
 exports.forgotPassword = async (req, res) => {
   const { email } = req.body;
 
@@ -205,24 +212,20 @@ exports.forgotPassword = async (req, res) => {
       });
     }
 
-    const user = result.rows[0];
-
-    const previewUrl = await sendResetEmail(user.email, user.username);
-
-    res.status(200).json({
-      message: `Password reset email generated for ${user.email}`,
-      preview: previewUrl
+    return res.status(200).json({
+      message: 'Email verified. You can now reset the password.',
+      email: result.rows[0].email
     });
   } catch (err) {
     console.error('Forgot password error:', err);
-    res.status(500).json({
+    return res.status(500).json({
       error: 'Forgot password process failed',
       detail: err.message
     });
   }
 };
 
-// RESET PASSWORD - Optional simplified version
+// RESET PASSWORD
 exports.resetPassword = async (req, res) => {
   const { email, newPassword } = req.body;
 
@@ -266,17 +269,25 @@ exports.resetPassword = async (req, res) => {
       `UPDATE users
        SET password = $1
        WHERE email = $2
-       RETURNING user_id, username, email, role`,
+       RETURNING user_id, username, email, role, is_active`,
       [hashedPassword, email]
     );
 
-    res.status(200).json({
+    return res.status(200).json({
       message: 'Password reset successfully',
-      user: result.rows[0]
+      user: {
+        id: result.rows[0].user_id,
+        user_id: result.rows[0].user_id,
+        username: result.rows[0].username,
+        name: result.rows[0].username,
+        email: result.rows[0].email,
+        role: result.rows[0].role,
+        is_active: result.rows[0].is_active
+      }
     });
   } catch (err) {
     console.error('Reset password error:', err);
-    res.status(500).json({
+    return res.status(500).json({
       error: 'Password reset failed',
       detail: err.message
     });

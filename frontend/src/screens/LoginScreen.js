@@ -14,10 +14,11 @@ import {
   SafeAreaView,
   StatusBar,
   Modal,
+  Linking,
 } from 'react-native';
+import { login, forgotPassword, clearAuth } from '../services/api';
 
-import { login, forgotPassword } from '../services/api';
-
+// Theme Colors
 const colors = {
   primary: '#0B1F3A',
   secondary: '#F0A500',
@@ -28,35 +29,123 @@ const colors = {
   textSecondary: '#64748B',
   border: '#E2E8F0',
   danger: '#DC2626',
+  success: '#10B981',
 };
 
-const spacing = { xs: 4, sm: 8, md: 16, lg: 24, xl: 32, xxl: 48 };
+const spacing = {
+  xs: 4,
+  sm: 8,
+  md: 16,
+  lg: 24,
+  xl: 32,
+  xxl: 48,
+};
+
 const typography = {
   h1: { fontSize: 32, fontWeight: '900', lineHeight: 40 },
   h2: { fontSize: 24, fontWeight: '800', lineHeight: 32 },
+  h3: { fontSize: 20, fontWeight: '700', lineHeight: 28 },
   body: { fontSize: 16, fontWeight: '400', lineHeight: 24 },
   bodySmall: { fontSize: 14, fontWeight: '400', lineHeight: 20 },
   caption: { fontSize: 12, fontWeight: '500', lineHeight: 16 },
 };
-const radius = { md: 14, xl: 30, round: 40 };
+
+const radius = {
+  sm: 8,
+  md: 14,
+  lg: 20,
+  xl: 30,
+  round: 40,
+};
+
+const normalizeRole = (role) => {
+  const cleanRole = String(role || '').trim().toLowerCase();
+
+  if (
+    cleanRole === 'facility_manager' ||
+    cleanRole === 'facility manager' ||
+    cleanRole === 'manager' ||
+    cleanRole === 'fm'
+  ) {
+    return 'facility_manager';
+  }
+
+  if (
+    cleanRole === 'community_member' ||
+    cleanRole === 'community member' ||
+    cleanRole === 'member' ||
+    cleanRole === 'student'
+  ) {
+    return 'community_member';
+  }
+
+  if (
+    cleanRole === 'worker' ||
+    cleanRole === 'maintenance_worker' ||
+    cleanRole === 'maintenance worker'
+  ) {
+    return 'worker';
+  }
+
+  if (
+    cleanRole === 'admin' ||
+    cleanRole === 'system_admin' ||
+    cleanRole === 'system admin'
+  ) {
+    return 'admin';
+  }
+
+  return cleanRole;
+};
 
 const goToRoleApp = (navigation, role) => {
-  if (role === 'facility_manager') navigation.replace('FMApp');
-  else if (role === 'admin') navigation.replace('AdminApp');
-  else if (role === 'community_member') navigation.replace('CMApp');
-  else if (role === 'worker') navigation.replace('WorkerApp');
-  else Alert.alert('Login Failed', 'Unknown user role.');
+  const normalizedRole = normalizeRole(role);
+
+  if (normalizedRole === 'facility_manager') {
+    navigation.reset({
+      index: 0,
+      routes: [{ name: 'FMApp' }],
+    });
+    return;
+  }
+
+  if (normalizedRole === 'admin') {
+    navigation.reset({
+      index: 0,
+      routes: [{ name: 'AdminApp' }],
+    });
+    return;
+  }
+
+  if (normalizedRole === 'community_member') {
+    navigation.reset({
+      index: 0,
+      routes: [{ name: 'CMApp' }],
+    });
+    return;
+  }
+
+  if (normalizedRole === 'worker') {
+    navigation.reset({
+      index: 0,
+      routes: [{ name: 'WorkerApp' }],
+    });
+    return;
+  }
+
+  Alert.alert('Login Failed', `Unknown user role: ${role || 'missing role'}`);
 };
 
 export default function LoginScreen({ navigation }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
-  const [forgotVisible, setForgotVisible] = useState(false);
-  const [forgotEmail, setForgotEmail] = useState('');
-  const [forgotLoading, setForgotLoading] = useState(false);
+  const [forgotModalVisible, setForgotModalVisible] = useState(false);
+  const [resetEmail, setResetEmail] = useState('');
+  const [resetLoading, setResetLoading] = useState(false);
 
   const handleLogin = async () => {
     if (!email.trim()) {
@@ -70,36 +159,58 @@ export default function LoginScreen({ navigation }) {
     }
 
     setLoading(true);
+
     try {
+      await clearAuth();
+
       const data = await login(email.trim().toLowerCase(), password);
-      goToRoleApp(navigation, data.user?.role);
+
+      const role =
+        data?.user?.role ||
+        data?.user?.user_role ||
+        data?.role ||
+        data?.user_role;
+
+      goToRoleApp(navigation, role);
     } catch (err) {
-      Alert.alert('Login Failed', err.message || 'Invalid credentials.');
+      Alert.alert('Login Failed', err.message || 'Invalid credentials');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleForgotContinue = async () => {
-    const cleanEmail = forgotEmail.trim().toLowerCase();
+  const handleForgotPassword = async () => {
+    const cleanEmail = resetEmail.trim().toLowerCase();
 
     if (!cleanEmail) {
       Alert.alert('Missing Field', 'Please enter your email address.');
       return;
     }
 
-    setForgotLoading(true);
+    setResetLoading(true);
+
     try {
-      // This checks that the email exists on the backend.
       await forgotPassword(cleanEmail);
-      setForgotVisible(false);
-      setForgotEmail('');
-      navigation.navigate('ResetPassword', { email: cleanEmail });
+
+      setForgotModalVisible(false);
+      setResetEmail('');
+
+      navigation.navigate('ResetPassword', {
+        email: cleanEmail,
+      });
     } catch (err) {
       Alert.alert('Error', err.message || 'Could not start password reset.');
     } finally {
-      setForgotLoading(false);
+      setResetLoading(false);
     }
+  };
+
+  const openTermsLink = () => {
+    Linking.openURL('https://www.campuscaredemo.com/terms');
+  };
+
+  const openPrivacyLink = () => {
+    Linking.openURL('https://www.campuscaredemo.com/privacy');
   };
 
   return (
@@ -131,7 +242,7 @@ export default function LoginScreen({ navigation }) {
               <Text style={styles.label}>Email Address</Text>
               <TextInput
                 style={styles.input}
-                placeholder="Enter your email"
+                placeholder="Enter your Email"
                 placeholderTextColor={colors.textSecondary}
                 value={email}
                 onChangeText={setEmail}
@@ -161,17 +272,16 @@ export default function LoginScreen({ navigation }) {
                   style={styles.eyeBtn}
                   disabled={loading}
                 >
-                  <Text style={styles.eyeIcon}>{showPassword ? 'Hide' : 'Show'}</Text>
+                  <Text style={styles.eyeIcon}>
+                    {showPassword ? 'Hide' : 'Show'}
+                  </Text>
                 </TouchableOpacity>
               </View>
             </View>
 
             <TouchableOpacity
               style={styles.forgotLink}
-              onPress={() => {
-                setForgotEmail(email.trim().toLowerCase());
-                setForgotVisible(true);
-              }}
+              onPress={() => setForgotModalVisible(true)}
               disabled={loading}
             >
               <Text style={styles.forgotLinkText}>Forgot Password?</Text>
@@ -189,19 +299,32 @@ export default function LoginScreen({ navigation }) {
               )}
             </TouchableOpacity>
 
-            <View style={styles.divider}>
+            <View style={styles.dividerRow}>
               <View style={styles.dividerLine} />
-              <Text style={styles.dividerText}>New to CampusCare?</Text>
+              <Text style={styles.dividerText}>OR</Text>
               <View style={styles.dividerLine} />
             </View>
 
             <TouchableOpacity
-              style={styles.registerBtn}
+              style={styles.registerLink}
               onPress={() => navigation.navigate('Register')}
               disabled={loading}
             >
-              <Text style={styles.registerBtnText}>Create New Account</Text>
+              <Text style={styles.registerLinkText}>
+                Don't have an account?{' '}
+                <Text style={styles.registerLinkHighlight}>Sign Up</Text>
+              </Text>
             </TouchableOpacity>
+
+            <View style={styles.legalLinks}>
+              <TouchableOpacity onPress={openTermsLink}>
+                <Text style={styles.legalLinkText}>Terms of Service</Text>
+              </TouchableOpacity>
+              <Text style={styles.legalSeparator}>•</Text>
+              <TouchableOpacity onPress={openPrivacyLink}>
+                <Text style={styles.legalLinkText}>Privacy Policy</Text>
+              </TouchableOpacity>
+            </View>
           </View>
 
           <Text style={styles.footer}>CampusCare © 2026</Text>
@@ -209,50 +332,58 @@ export default function LoginScreen({ navigation }) {
       </KeyboardAvoidingView>
 
       <Modal
-        visible={forgotVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setForgotVisible(false)}
+        animationType="slide"
+        transparent={true}
+        visible={forgotModalVisible}
+        onRequestClose={() => setForgotModalVisible(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalIcon}>🔐</Text>
-            <Text style={styles.modalTitle}>Forgot Password</Text>
-            <Text style={styles.modalText}>
-              Enter your account email, then you will create a new password on the next screen.
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Reset Password</Text>
+              <TouchableOpacity
+                onPress={() => setForgotModalVisible(false)}
+                style={styles.modalClose}
+              >
+                <Text style={styles.modalCloseText}>✕</Text>
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.modalDescription}>
+              Enter your email address to continue.
             </Text>
-        <View style={styles.modalInputGroup}>
-          <Text style={styles.label}>Email Address</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Enter your email"
-              placeholderTextColor={colors.textSecondary}
-              value={forgotEmail}
-              onChangeText={setForgotEmail}
-              autoCapitalize="none"
-              keyboardType="email-address"
-              editable={!forgotLoading}
-            />
-        </View>
+
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Email Address</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Enter your email"
+                placeholderTextColor={colors.textSecondary}
+                value={resetEmail}
+                onChangeText={setResetEmail}
+                autoCapitalize="none"
+                keyboardType="email-address"
+                editable={!resetLoading}
+              />
+            </View>
 
             <TouchableOpacity
-              style={[styles.loginBtn, forgotLoading && styles.loginBtnDisabled]}
-              onPress={handleForgotContinue}
-              disabled={forgotLoading}
+              style={[styles.resetBtn, resetLoading && styles.resetBtnDisabled]}
+              onPress={handleForgotPassword}
+              disabled={resetLoading}
             >
-              {forgotLoading ? (
+              {resetLoading ? (
                 <ActivityIndicator color="#FFFFFF" />
               ) : (
-                <Text style={styles.loginBtnText}>Continue</Text>
+                <Text style={styles.resetBtnText}>Continue</Text>
               )}
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={styles.cancelBtn}
-              onPress={() => setForgotVisible(false)}
-              disabled={forgotLoading}
+              style={styles.modalCancel}
+              onPress={() => setForgotModalVisible(false)}
             >
-              <Text style={styles.cancelBtnText}>Cancel</Text>
+              <Text style={styles.modalCancelText}>Cancel</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -264,18 +395,18 @@ export default function LoginScreen({ navigation }) {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.primary },
   scroll: { flexGrow: 1, paddingBottom: spacing.xl },
-  header: { alignItems: 'center', paddingTop: spacing.xxl, paddingBottom: spacing.xl },
+  header: { alignItems: 'center', paddingVertical: spacing.xl },
   logoCircle: {
-    width: 88,
-    height: 88,
+    width: 80,
+    height: 80,
     borderRadius: radius.round,
     backgroundColor: 'rgba(255,255,255,0.15)',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: spacing.md,
   },
-  logoEmoji: { fontSize: 44 },
-  appName: { ...typography.h1, color: '#FFFFFF', letterSpacing: -0.5 },
+  logoEmoji: { fontSize: 40 },
+  appName: { ...typography.h1, color: '#FFFFFF', letterSpacing: -1 },
   tagline: {
     ...typography.bodySmall,
     color: 'rgba(255,255,255,0.7)',
@@ -292,12 +423,16 @@ const styles = StyleSheet.create({
     shadowRadius: 30,
     elevation: 10,
   },
-  formTitle: { ...typography.h2, color: colors.primary, textAlign: 'center', marginBottom: spacing.xs },
+  formTitle: {
+    ...typography.h2,
+    color: colors.primary,
+    marginBottom: spacing.xs,
+  },
   formSubtitle: {
     ...typography.bodySmall,
     color: colors.textSecondary,
-    textAlign: 'center',
-    marginBottom: spacing.xl,
+    fontWeight: '600',
+    marginBottom: spacing.lg,
   },
   inputGroup: { marginBottom: spacing.md },
   label: {
@@ -325,31 +460,72 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     borderRadius: radius.md,
   },
-  passwordInput: { flex: 1, padding: spacing.md, fontSize: 15, color: colors.text },
+  passwordInput: {
+    flex: 1,
+    padding: spacing.md,
+    fontSize: 15,
+    color: colors.text,
+  },
   eyeBtn: { paddingRight: spacing.md },
-  eyeIcon: { fontSize: 14, fontWeight: '700', color: colors.primary },
+  eyeIcon: { fontSize: 14, fontWeight: '600', color: colors.primary },
   forgotLink: { alignSelf: 'flex-end', marginBottom: spacing.lg },
-  forgotLinkText: { color: colors.secondary, fontWeight: '800', fontSize: 14 },
+  forgotLinkText: {
+    ...typography.caption,
+    color: colors.secondary,
+    fontWeight: '700',
+  },
   loginBtn: {
     backgroundColor: colors.primary,
     borderRadius: radius.md,
     paddingVertical: spacing.md,
     alignItems: 'center',
-    marginBottom: spacing.lg,
+    marginTop: spacing.sm,
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+    elevation: 5,
   },
   loginBtnDisabled: { opacity: 0.7 },
   loginBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: '900' },
-  divider: { flexDirection: 'row', alignItems: 'center', marginBottom: spacing.lg },
-  dividerLine: { flex: 1, height: 1, backgroundColor: colors.border },
-  dividerText: { marginHorizontal: spacing.sm, color: colors.textSecondary, fontSize: 12, fontWeight: '700' },
-  registerBtn: {
-    borderWidth: 2,
-    borderColor: colors.accent,
-    borderRadius: radius.md,
-    paddingVertical: spacing.md,
+  dividerRow: {
+    flexDirection: 'row',
     alignItems: 'center',
+    marginVertical: spacing.md,
   },
-  registerBtnText: { color: colors.accent, fontSize: 15, fontWeight: '900' },
+  dividerLine: { flex: 1, height: 1, backgroundColor: colors.border },
+  dividerText: {
+    ...typography.caption,
+    marginHorizontal: spacing.sm,
+    color: colors.textSecondary,
+    fontWeight: '600',
+  },
+  registerLink: { alignItems: 'center', paddingVertical: spacing.sm },
+  registerLinkText: {
+    ...typography.body,
+    color: colors.textSecondary,
+    fontWeight: '600',
+  },
+  registerLinkHighlight: { color: colors.secondary, fontWeight: '800' },
+  legalLinks: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: spacing.md,
+    paddingTop: spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  legalLinkText: {
+    ...typography.caption,
+    color: colors.textSecondary,
+    fontWeight: '500',
+  },
+  legalSeparator: {
+    ...typography.caption,
+    color: colors.textSecondary,
+    marginHorizontal: spacing.sm,
+  },
   footer: {
     ...typography.caption,
     color: 'rgba(255,255,255,0.4)',
@@ -359,32 +535,54 @@ const styles = StyleSheet.create({
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.45)',
-    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'center',
-    padding: spacing.lg,
+    alignItems: 'center',
   },
-  modalCard: {
-    width: '100%',
+  modalContent: {
     backgroundColor: colors.surface,
-    borderRadius: radius.xl,
+    borderRadius: radius.lg,
     padding: spacing.lg,
+    width: '85%',
+    maxWidth: 400,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
   },
-  modalIcon: { fontSize: 42, textAlign: 'center', marginBottom: spacing.sm },
-  modalTitle: { ...typography.h2, color: colors.primary, textAlign: 'center', marginBottom: spacing.sm },
-  modalText: { ...typography.bodySmall, color: colors.textSecondary, textAlign: 'center', marginBottom: spacing.md },
-  cancelBtn: { alignItems: 'center', paddingVertical: spacing.sm },
-  cancelBtnText: { color: colors.textSecondary, fontWeight: '800' },
-  modalInputGroup: {
-  marginTop: spacing.sm,
-  marginBottom: spacing.lg,
-},
-
-modalContinueBtn: {
-  backgroundColor: colors.primary,
-  borderRadius: radius.md,
-  paddingVertical: spacing.md,
-  alignItems: 'center',
-  marginBottom: spacing.md,
-},
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.md,
+  },
+  modalTitle: { ...typography.h3, color: colors.primary },
+  modalClose: { padding: spacing.sm },
+  modalCloseText: { fontSize: 20, color: colors.textSecondary },
+  modalDescription: {
+    ...typography.bodySmall,
+    color: colors.textSecondary,
+    marginBottom: spacing.lg,
+    lineHeight: 20,
+  },
+  resetBtn: {
+    backgroundColor: colors.secondary,
+    borderRadius: radius.md,
+    paddingVertical: spacing.md,
+    alignItems: 'center',
+    marginTop: spacing.md,
+  },
+  resetBtnDisabled: { opacity: 0.7 },
+  resetBtnText: { color: colors.primary, fontSize: 16, fontWeight: '900' },
+  modalCancel: {
+    alignItems: 'center',
+    paddingVertical: spacing.md,
+    marginTop: spacing.sm,
+  },
+  modalCancelText: {
+    ...typography.body,
+    color: colors.textSecondary,
+    fontWeight: '600',
+  },
 });

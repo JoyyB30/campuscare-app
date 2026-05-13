@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from 'react';
+import { ActivityIndicator, View } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { ActivityIndicator, View } from 'react-native';
 
-import { getUser, getToken } from './src/services/api';
+import { getToken, getUser } from './src/services/api';
 
 import FMNavigator from './src/navigation/FMNavigator';
 import CMNavigator from './src/navigation/CMNavigator';
@@ -25,28 +25,28 @@ export default function App() {
   }, []);
 
   const checkAuth = async () => {
-    const token = await getToken();
-    const user = await getUser();
+    try {
+      const token = await getToken();
+      const user = await getUser();
 
-    if (!token || !user) {
+      if (!token || !user) {
+        setInitialRoute('Login');
+      } else if (user.role === 'facility_manager') {
+        setInitialRoute('FMApp');
+      } else if (user.role === 'community_member') {
+        setInitialRoute('CMApp');
+      } else if (user.role === 'worker') {
+        setInitialRoute('WorkerApp');
+      } else if (user.role === 'admin') {
+        setInitialRoute('AdminApp');
+      } else {
+        setInitialRoute('Login');
+      }
+    } catch (error) {
       setInitialRoute('Login');
+    } finally {
       setLoading(false);
-      return;
     }
-
-    if (user.role === 'facility_manager') {
-      setInitialRoute('FMApp');
-    } else if (user.role === 'community_member') {
-      setInitialRoute('CMApp');
-    } else if (user.role === 'worker') {
-      setInitialRoute('WorkerApp');
-    } else if (user.role === 'admin') {
-      setInitialRoute('AdminApp');
-    } else {
-      setInitialRoute('Login');
-    }
-
-    setLoading(false);
   };
 
   if (loading) {
@@ -59,10 +59,7 @@ export default function App() {
 
   return (
     <NavigationContainer>
-      <Stack.Navigator
-        initialRouteName={initialRoute}
-        screenOptions={{ headerShown: false }}
-      >
+      <Stack.Navigator initialRouteName={initialRoute} screenOptions={{ headerShown: false }}>
         <Stack.Screen name="Login" component={LoginScreen} />
         <Stack.Screen name="Register" component={RegisterScreen} />
         <Stack.Screen name="ResetPassword" component={ResetPasswordScreen} />

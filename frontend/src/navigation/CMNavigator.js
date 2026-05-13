@@ -1,12 +1,11 @@
-// src/navigation/CMNavigator.js
 import React from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
-import HomeScreen from '../screens/community/HomeScreen';
-import SubmitIssueScreen from '../screens/community/SubmitIssueScreen';
-import MyIssuesScreen from '../screens/community/MyIssuesScreen';
-import IssueStatusScreen from '../screens/community/IssueStatusScreen';
-import IssueDetailScreen from '../screens/community/IssueDetailScreen';
+import HomeScreen from '../screens/member/HomeScreen';
+import SubmitIssueScreen from '../screens/member/SubmitIssueScreen';
+import MyIssuesScreen from '../screens/member/MyIssuesScreen';
+import IssueStatusScreen from '../screens/member/IssueStatusScreen';
+import IssueDetailScreen from '../screens/member/IssueDetailScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -14,9 +13,7 @@ export default function CMNavigator() {
   return (
     <Stack.Navigator
       initialRouteName="CMHome"
-      screenOptions={{
-        headerShown: false,
-      }}
+      screenOptions={{ headerShown: false }}
     >
       <Stack.Screen name="CMHome" component={HomeScreen} />
       <Stack.Screen name="SubmitIssue" component={SubmitIssueScreen} />

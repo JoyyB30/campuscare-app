@@ -5,6 +5,8 @@ const allowedStatuses = ['pending', 'assigned', 'in_progress', 'resolved', 'clos
 const allowedPriorities = ['low', 'medium', 'high', 'urgent'];
 
 const createNotification = async (userId, ticketId, type, message) => {
+  if (!userId || !ticketId || !type || !message) return;
+
   await db.query(
     `INSERT INTO notifications (user_id, ticket_id, notification_type, message, is_read)
      VALUES ($1, $2, $3, $4, false)`,
@@ -28,8 +30,15 @@ const ticketSelect = `
     t.*,
     t.created_at AS submitted_at,
     c.category_name AS category,
+    c.category_type,
+    l.building_name,
+    l.floor,
+    l.room_number,
+    l.area,
+    l.location_type,
     CONCAT_WS(' - ', l.building_name, l.floor, l.room_number, l.area) AS location_name,
     creator.username AS creator_username,
+    creator.email AS creator_email,
     worker.username AS assigned_worker_name,
     worker.email AS assigned_worker_email
   FROM tickets t
@@ -54,30 +63,105 @@ const canAccessTicket = (user, ticket) => {
   if (user.role === 'facility_manager' || user.role === 'admin') return true;
 
   if (user.role === 'community_member') {
-    return ticket.created_by === user.id;
+    return Number(ticket.created_by) === Number(user.id);
   }
 
   if (user.role === 'worker') {
-    return ticket.assigned_to === user.id;
+    return Number(ticket.assigned_to) === Number(user.id);
   }
 
   return false;
 };
 
-// 1. Community Member: Create issue
+exports.getCategories = async (req, res) => {
+  try {
+    const result = await db.query(
+      `SELECT category_id, category_name, category_type, is_active
+       FROM categories
+       WHERE is_active = true
+       ORDER BY category_name ASC`
+    );
+
+    return res.status(200).json({
+      count: result.rows.length,
+      categories: result.rows
+    });
+  } catch (err) {
+    console.error('Get categories error:', err);
+    return res.status(500).json({
+      error: 'Failed to get categories',
+      detail: err.message
+    });
+  }
+};
+
+exports.getLocations = async (req, res) => {
+  try {
+    const result = await db.query(
+      `SELECT location_id, building_name, floor, room_number, area, location_type, description, is_active,
+              CONCAT_WS(' - ', building_name, floor, room_number, area) AS location_name
+       FROM locations
+       WHERE is_active = true
+       ORDER BY building_name ASC, floor ASC, room_number ASC`
+    );
+
+    return res.status(200).json({
+      count: result.rows.length,
+      locations: result.rows
+    });
+  } catch (err) {
+    console.error('Get locations error:', err);
+    return res.status(500).json({
+      error: 'Failed to get locations',
+      detail: err.message
+    });
+  }
+};
+
+// Community Member: Create issue
 exports.createIssue = async (req, res) => {
-  const { title, description, location_id, category_id } = req.body;
+  const { description, location_id, category_id } = req.body;
+  let { title } = req.body;
+
   const created_by = req.user.id;
   let photo_url = null;
 
-  if (!title || !description || !location_id || !category_id) {
+  if (!description || !location_id || !category_id) {
     return res.status(400).json({
       error: 'Missing required fields',
-      message: 'title, description, location_id, and category_id are required'
+      message: 'description, location_id, and category_id are required'
     });
   }
 
   try {
+    const categoryResult = await db.query(
+      'SELECT category_name FROM categories WHERE category_id = $1 AND is_active = true',
+      [category_id]
+    );
+
+    if (categoryResult.rows.length === 0) {
+      return res.status(400).json({
+        error: 'Invalid category',
+        message: 'Selected category does not exist'
+      });
+    }
+
+    const locationResult = await db.query(
+      'SELECT location_id FROM locations WHERE location_id = $1 AND is_active = true',
+      [location_id]
+    );
+
+    if (locationResult.rows.length === 0) {
+      return res.status(400).json({
+        error: 'Invalid location',
+        message: 'Selected location does not exist'
+      });
+    }
+
+    if (!title || title.trim() === '') {
+      title = `${categoryResult.rows[0].category_name} issue`;
+    }
+
     if (req.file) {
       photo_url = await uploadToCloudinary(req.file.buffer, 'issue_photos');
     }
@@ -98,22 +182,24 @@ exports.createIssue = async (req, res) => {
       `New issue submitted: ${ticket.title}`
     );
 
-    res.status(201).json({
+    const fullTicket = await getTicketById(ticket.ticket_id);
+
+    return res.status(201).json({
       message: 'Issue created successfully',
-      issue: ticket
+      issue: fullTicket
     });
   } catch (err) {
     console.error('Create issue error:', err);
-    res.status(500).json({
+    return res.status(500).json({
       error: 'Failed to create issue',
       detail: err.message
     });
   }
 };
 
-// 2. Facility Manager: Get all issues with optional filters
+// Facility Manager: Get all issues with optional filters
 exports.getAllIssues = async (req, res) => {
-  const { status, category_id, location_id, priority, from_date, to_date } = req.query;
+  const { status, category_id, location_id, priority, from_date, to_date, date } = req.query;
 
   const conditions = [];
   const values = [];
@@ -138,6 +224,11 @@ exports.getAllIssues = async (req, res) => {
     conditions.push(`t.priority = $${values.length}`);
   }
 
+  if (date) {
+    values.push(date);
+    conditions.push(`DATE(t.created_at) = DATE($${values.length})`);
+  }
+
   if (from_date) {
     values.push(from_date);
     conditions.push(`DATE(t.created_at) >= DATE($${values.length})`);
@@ -158,20 +249,20 @@ exports.getAllIssues = async (req, res) => {
       values
     );
 
-    res.status(200).json({
+    return res.status(200).json({
       count: result.rows.length,
       issues: result.rows
     });
   } catch (err) {
     console.error('Get all issues error:', err);
-    res.status(500).json({
+    return res.status(500).json({
       error: 'Failed to get issues',
       detail: err.message
     });
   }
 };
 
-// 3. Community Member: Get my submitted issues
+// Community Member: Get my submitted issues
 exports.getMyIssues = async (req, res) => {
   try {
     const result = await db.query(
@@ -181,20 +272,20 @@ exports.getMyIssues = async (req, res) => {
       [req.user.id]
     );
 
-    res.status(200).json({
+    return res.status(200).json({
       count: result.rows.length,
       issues: result.rows
     });
   } catch (err) {
     console.error('Get my issues error:', err);
-    res.status(500).json({
+    return res.status(500).json({
       error: 'Failed to get my issues',
       detail: err.message
     });
   }
 };
 
-// 4. Worker: Get assigned issues
+// Worker: Get assigned issues
 exports.getAssignedIssues = async (req, res) => {
   try {
     const result = await db.query(
@@ -204,20 +295,20 @@ exports.getAssignedIssues = async (req, res) => {
       [req.user.id]
     );
 
-    res.status(200).json({
+    return res.status(200).json({
       count: result.rows.length,
       issues: result.rows
     });
   } catch (err) {
     console.error('Get assigned issues error:', err);
-    res.status(500).json({
+    return res.status(500).json({
       error: 'Failed to get assigned issues',
       detail: err.message
     });
   }
 };
 
-// 5. Get issue by ID with role-based access
+// Get issue by ID with role-based access
 exports.getIssueById = async (req, res) => {
   const { id } = req.params;
 
@@ -247,28 +338,29 @@ exports.getIssueById = async (req, res) => {
     );
 
     const photos = await db.query(
-      `SELECT *
-       FROM photos
-       WHERE ticket_id = $1
-       ORDER BY uploaded_at ASC`,
+      `SELECT p.*, u.username AS uploaded_by_name
+       FROM photos p
+       LEFT JOIN users u ON p.uploaded_by = u.user_id
+       WHERE p.ticket_id = $1
+       ORDER BY p.uploaded_at ASC`,
       [id]
     );
 
-    res.status(200).json({
+    return res.status(200).json({
       issue: ticket,
       comments: comments.rows,
       photos: photos.rows
     });
   } catch (err) {
     console.error('Get issue by ID error:', err);
-    res.status(500).json({
+    return res.status(500).json({
       error: 'Failed to get issue',
       detail: err.message
     });
   }
 };
 
-// 6. Facility Manager / Worker: Update status
+// Facility Manager / Worker: Update status
 exports.updateIssueStatus = async (req, res) => {
   const { id } = req.params;
   const { status } = req.body;
@@ -297,27 +389,27 @@ exports.updateIssueStatus = async (req, res) => {
     }
 
     if (req.user.role === 'worker') {
-  if (ticket.assigned_to !== req.user.id) {
-    return res.status(403).json({
-      error: 'Access denied',
-      message: 'Workers can only update issues assigned to them'
-    });
-  }
+      if (Number(ticket.assigned_to) !== Number(req.user.id)) {
+        return res.status(403).json({
+          error: 'Access denied',
+          message: 'Workers can only update issues assigned to them'
+        });
+      }
 
-  if (status !== 'in_progress' && status !== 'resolved') {
-    return res.status(403).json({
-      error: 'Invalid worker action',
-      message: 'Workers can only mark assigned issues as in_progress or resolved'
-    });
-  }
+      if (status !== 'in_progress' && status !== 'resolved') {
+        return res.status(403).json({
+          error: 'Invalid worker action',
+          message: 'Workers can only mark assigned issues as in_progress or resolved'
+        });
+      }
 
-  if (status === 'resolved' && !ticket.completed_photo_url) {
-    return res.status(400).json({
-      error: 'Completion photo required',
-      message: 'Worker must upload a completion photo before marking the issue as resolved'
-    });
-  }
-}
+      if (status === 'resolved' && !ticket.completed_photo_url) {
+        return res.status(400).json({
+          error: 'Completion photo required',
+          message: 'Worker must upload a completion photo before marking the issue as resolved'
+        });
+      }
+    }
 
     const result = await db.query(
       `UPDATE tickets
@@ -339,27 +431,29 @@ exports.updateIssueStatus = async (req, res) => {
     }
 
     if (req.user.role === 'worker' && status === 'resolved') {
-  await notifyFacilityManagers(
-    updatedTicket.ticket_id,
-    'completion',
-    `Worker marked issue "${updatedTicket.title}" as resolved. Please review the completion photo and check the quality of work.`
-  );
-}
+      await notifyFacilityManagers(
+        updatedTicket.ticket_id,
+        'completion',
+        `Worker marked issue "${updatedTicket.title}" as resolved. Please review the completion photo.`
+      );
+    }
 
-    res.status(200).json({
+    const fullTicket = await getTicketById(updatedTicket.ticket_id);
+
+    return res.status(200).json({
       message: 'Issue status updated successfully',
-      issue: updatedTicket
+      issue: fullTicket
     });
   } catch (err) {
     console.error('Update status error:', err);
-    res.status(500).json({
+    return res.status(500).json({
       error: 'Failed to update status',
       detail: err.message
     });
   }
 };
 
-// 7. Facility Manager: Assign issue to worker
+// Facility Manager: Assign issue to worker
 exports.assignIssue = async (req, res) => {
   const { id } = req.params;
   const { assigned_to } = req.body;
@@ -372,6 +466,14 @@ exports.assignIssue = async (req, res) => {
   }
 
   try {
+    const ticket = await getTicketById(id);
+
+    if (!ticket) {
+      return res.status(404).json({
+        error: 'Issue not found'
+      });
+    }
+
     const worker = await db.query(
       `SELECT user_id, username, role, is_active
        FROM users
@@ -407,12 +509,6 @@ exports.assignIssue = async (req, res) => {
       [assigned_to, id]
     );
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({
-        error: 'Issue not found'
-      });
-    }
-
     const updatedTicket = result.rows[0];
 
     await createNotification(
@@ -431,20 +527,22 @@ exports.assignIssue = async (req, res) => {
       );
     }
 
-    res.status(200).json({
+    const fullTicket = await getTicketById(updatedTicket.ticket_id);
+
+    return res.status(200).json({
       message: 'Issue assigned successfully',
-      issue: updatedTicket
+      issue: fullTicket
     });
   } catch (err) {
     console.error('Assign issue error:', err);
-    res.status(500).json({
+    return res.status(500).json({
       error: 'Failed to assign issue',
       detail: err.message
     });
   }
 };
 
-// 8. Facility Manager: Close resolved issue
+// Facility Manager: Close resolved issue
 exports.closeIssue = async (req, res) => {
   const { id } = req.params;
 
@@ -483,20 +581,22 @@ exports.closeIssue = async (req, res) => {
       );
     }
 
-    res.status(200).json({
+    const fullTicket = await getTicketById(updatedTicket.ticket_id);
+
+    return res.status(200).json({
       message: 'Issue closed successfully',
-      issue: updatedTicket
+      issue: fullTicket
     });
   } catch (err) {
     console.error('Close issue error:', err);
-    res.status(500).json({
+    return res.status(500).json({
       error: 'Failed to close issue',
       detail: err.message
     });
   }
 };
 
-// 9. Facility Manager: Delete issue
+// Facility Manager: Delete issue
 exports.deleteIssue = async (req, res) => {
   const { id } = req.params;
 
@@ -514,20 +614,20 @@ exports.deleteIssue = async (req, res) => {
       });
     }
 
-    res.status(200).json({
+    return res.status(200).json({
       message: 'Issue deleted successfully',
       deletedIssue: result.rows[0]
     });
   } catch (err) {
     console.error('Delete issue error:', err);
-    res.status(500).json({
+    return res.status(500).json({
       error: 'Failed to delete issue',
       detail: err.message
     });
   }
 };
 
-// 10. Worker: Add comment to assigned issue
+// Worker: Add comment to assigned issue
 exports.addComment = async (req, res) => {
   const { id } = req.params;
   const { comment_text } = req.body;
@@ -548,7 +648,7 @@ exports.addComment = async (req, res) => {
       });
     }
 
-    if (ticket.assigned_to !== req.user.id) {
+    if (Number(ticket.assigned_to) !== Number(req.user.id)) {
       return res.status(403).json({
         error: 'Access denied',
         message: 'Workers can only comment on issues assigned to them'
@@ -568,20 +668,20 @@ exports.addComment = async (req, res) => {
       `Worker added a comment on issue "${ticket.title}": ${comment_text}`
     );
 
-    res.status(201).json({
+    return res.status(201).json({
       message: 'Comment added successfully',
       comment: result.rows[0]
     });
   } catch (err) {
     console.error('Add comment error:', err);
-    res.status(500).json({
+    return res.status(500).json({
       error: 'Failed to add comment',
       detail: err.message
     });
   }
 };
 
-// 11. Worker: Upload completion photo for assigned issue
+// Worker: Upload completion photo for assigned issue
 exports.uploadCompletionPhoto = async (req, res) => {
   const { id } = req.params;
 
@@ -601,7 +701,7 @@ exports.uploadCompletionPhoto = async (req, res) => {
       });
     }
 
-    if (ticket.assigned_to !== req.user.id) {
+    if (Number(ticket.assigned_to) !== Number(req.user.id)) {
       return res.status(403).json({
         error: 'Access denied',
         message: 'Workers can only upload completion photos for issues assigned to them'
@@ -642,21 +742,23 @@ exports.uploadCompletionPhoto = async (req, res) => {
       );
     }
 
-    res.status(201).json({
+    const fullTicket = await getTicketById(updatedTicket.ticket_id);
+
+    return res.status(201).json({
       message: 'Completion photo uploaded successfully',
       photo: photoResult.rows[0],
-      issue: updatedTicket
+      issue: fullTicket
     });
   } catch (err) {
     console.error('Upload completion photo error:', err);
-    res.status(500).json({
+    return res.status(500).json({
       error: 'Failed to upload completion photo',
       detail: err.message
     });
   }
 };
 
-// 12. Facility Manager: Update priority
+// Facility Manager: Update priority
 exports.updateIssuePriority = async (req, res) => {
   const { id } = req.params;
   const { priority } = req.body;
@@ -690,44 +792,47 @@ exports.updateIssuePriority = async (req, res) => {
       });
     }
 
-    res.status(200).json({
+    const fullTicket = await getTicketById(id);
+
+    return res.status(200).json({
       message: 'Issue priority updated successfully',
-      issue: result.rows[0]
+      issue: fullTicket
     });
   } catch (err) {
     console.error('Update priority error:', err);
-    res.status(500).json({
+    return res.status(500).json({
       error: 'Failed to update priority',
       detail: err.message
     });
   }
 };
 
-// 13. Get my notifications
+// Get my notifications
 exports.getMyNotifications = async (req, res) => {
   try {
     const result = await db.query(
-      `SELECT *
-       FROM notifications
-       WHERE user_id = $1
-       ORDER BY created_at DESC`,
+      `SELECT n.*, t.title, t.status, t.priority
+       FROM notifications n
+       LEFT JOIN tickets t ON n.ticket_id = t.ticket_id
+       WHERE n.user_id = $1
+       ORDER BY n.created_at DESC`,
       [req.user.id]
     );
 
-    res.status(200).json({
+    return res.status(200).json({
       count: result.rows.length,
       notifications: result.rows
     });
   } catch (err) {
     console.error('Get notifications error:', err);
-    res.status(500).json({
+    return res.status(500).json({
       error: 'Failed to get notifications',
       detail: err.message
     });
   }
 };
 
-// 14. Mark notification as read
+// Mark notification as read
 exports.markNotificationAsRead = async (req, res) => {
   const { notificationId } = req.params;
 
@@ -746,13 +851,13 @@ exports.markNotificationAsRead = async (req, res) => {
       });
     }
 
-    res.status(200).json({
+    return res.status(200).json({
       message: 'Notification marked as read',
       notification: result.rows[0]
     });
   } catch (err) {
     console.error('Mark notification error:', err);
-    res.status(500).json({
+    return res.status(500).json({
       error: 'Failed to update notification',
       detail: err.message
     });

@@ -1,42 +1,38 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
-import Constants from 'expo-constants';
 
 const PORT = 5000;
 
-/*
-  IMPORTANT:
-  - Web uses localhost.
-  - Expo Go on a real phone uses your laptop IPv4 address.
-  - If phone cannot load data, replace this IP with your real laptop IPv4 from:
-      Windows terminal: ipconfig
-      Look for IPv4 Address under Wi-Fi.
-*/
-const LAPTOP_IP = '192.168.1.101'; // ← CHANGE THIS to your actual laptop IP
+// For Expo Go on a real phone, replace this with your laptop IPv4 address.
+// Windows: open CMD and run: ipconfig
+// Use the IPv4 Address under Wi-Fi.
+const LAPTOP_IP = '192.168.1.101';
 
 const getBaseUrl = () => {
   if (Platform.OS === 'web') {
-    return 'http://localhost:5000/api';
+    return `http://localhost:${PORT}/api`;
   }
-  // FIX: was single quotes before — must be backticks for template literal to work
-  return `http://${LAPTOP_IP}:5000/api`;
+
+  return `http://${LAPTOP_IP}:${PORT}/api`;
 };
 
-const BASE_URL = getBaseUrl();
+export const BASE_URL = getBaseUrl();
 
-console.log('Using API URL:', BASE_URL);
+console.log('CampusCare API URL:', BASE_URL);
 
-// ── Token helpers ─────────────────────────────────────────
+// Auth storage
 export const saveAuth = async (token, user) => {
   await AsyncStorage.setItem('token', token);
   await AsyncStorage.setItem('user', JSON.stringify(user));
 };
 
-export const getToken = async () => AsyncStorage.getItem('token');
+export const getToken = async () => {
+  return AsyncStorage.getItem('token');
+};
 
 export const getUser = async () => {
-  const s = await AsyncStorage.getItem('user');
-  return s ? JSON.parse(s) : null;
+  const storedUser = await AsyncStorage.getItem('user');
+  return storedUser ? JSON.parse(storedUser) : null;
 };
 
 export const clearAuth = async () => {
@@ -44,7 +40,7 @@ export const clearAuth = async () => {
   await AsyncStorage.removeItem('user');
 };
 
-// ── Helpers ───────────────────────────────────────────────
+// Helpers
 const safeJson = async (response) => {
   const text = await response.text();
 
@@ -57,15 +53,22 @@ const safeJson = async (response) => {
   }
 };
 
-const getErrorMessage = (data, fallback) => {
-  return (
-    data?.message ||
-    data?.error ||
-    data?.detail ||
-    data?.raw ||
-    fallback ||
-    'Request failed'
-  );
+const getErrorMessage = (data, fallback = 'Request failed') => {
+  return data?.message || data?.error || data?.detail || data?.raw || fallback;
+};
+
+const handleNetworkError = (error) => {
+  if (
+    error.message === 'Network request failed' ||
+    error.name === 'TypeError' ||
+    String(error.message).includes('Failed to fetch')
+  ) {
+    throw new Error(
+      `Network request failed. Frontend is trying to reach: ${BASE_URL}. Make sure the backend is running on port ${PORT}. If using Expo Go on a phone, make sure your phone and laptop are on the same Wi-Fi and LAPTOP_IP is correct.`
+    );
+  }
+
+  throw error;
 };
 
 const request = async (endpoint, method = 'GET', body = null) => {
@@ -104,46 +107,24 @@ const request = async (endpoint, method = 'GET', body = null) => {
         await clearAuth();
       }
 
-      if (response.status === 403) {
-        throw new Error(
-          getErrorMessage(
-            data,
-            'Access denied. You are logged in with a role that is not allowed to use this screen.'
-          )
-        );
-      }
-
       throw new Error(getErrorMessage(data));
     }
 
     return data;
-  } catch (err) {
-    if (
-      err.message === 'Network request failed' ||
-      err.name === 'TypeError' ||
-      String(err.message).includes('Failed to fetch')
-    ) {
-      throw new Error(
-        `Network request failed. Frontend is trying to reach: ${BASE_URL}. Make sure the backend is running on port ${PORT}. If using Expo Go on a phone, make sure your phone and laptop are on the same Wi-Fi and LAPTOP_IP is correct.`
-      );
-    }
-
-    throw err;
+  } catch (error) {
+    handleNetworkError(error);
   }
 };
 
-// ── AUTH ──────────────────────────────────────────────────
-export const register = async (username, email, password, role) => {
-  return request('/auth/register', 'POST', {
-    username,
+// AUTH
+export const register = async (name, email, password, role) => {
+  const data = await request('/auth/register', 'POST', {
+    name,
+    username: name,
     email,
     password,
     role,
   });
-};
-
-export const login = async (email, password) => {
-  const data = await request('/auth/login', 'POST', { email, password });
 
   if (data.token && data.user) {
     await saveAuth(data.token, data.user);
@@ -152,8 +133,17 @@ export const login = async (email, password) => {
   return data;
 };
 
-export const forgotPassword = async (email) => {
-  return request('/auth/forgot-password', 'POST', { email });
+export const login = async (email, password) => {
+  const data = await request('/auth/login', 'POST', {
+    email,
+    password,
+  });
+
+  if (data.token && data.user) {
+    await saveAuth(data.token, data.user);
+  }
+
+  return data;
 };
 
 export const logout = async () => {
@@ -164,12 +154,32 @@ export const logout = async () => {
   }
 };
 
-// ── ISSUES: Community Member ──────────────────────────────
-export const getMyIssues = () => {
+export const forgotPassword = async (email) => {
+  return request('/auth/forgot-password', 'POST', { email });
+};
+
+export const resetPassword = async (email, newPassword) => {
+  return request('/auth/reset-password', 'POST', {
+    email,
+    newPassword,
+  });
+};
+
+// LOOKUPS
+export const getCategories = async () => {
+  return request('/issues/meta/categories');
+};
+
+export const getLocations = async () => {
+  return request('/issues/meta/locations');
+};
+
+// COMMUNITY MEMBER
+export const getMyIssues = async () => {
   return request('/issues/my');
 };
 
-export const createIssue = (issueData) => {
+export const createIssue = async (issueData) => {
   return uploadIssueWithPhoto(
     issueData,
     issueData?.photoUri,
@@ -177,12 +187,16 @@ export const createIssue = (issueData) => {
   );
 };
 
-// ── ISSUES: Facility Manager ──────────────────────────────
+export const getIssueById = async (id) => {
+  return request(`/issues/${id}`);
+};
+
+// FACILITY MANAGER
 export const getAllIssues = async (filters = {}) => {
   const query = new URLSearchParams();
 
   Object.entries(filters).forEach(([key, value]) => {
-    if (value && value !== 'All') {
+    if (value !== undefined && value !== null && value !== '' && value !== 'All') {
       query.append(key, value);
     }
   });
@@ -191,40 +205,66 @@ export const getAllIssues = async (filters = {}) => {
   return request(`/issues${queryString ? `?${queryString}` : ''}`);
 };
 
-export const getIssueById = (id) => {
-  return request(`/issues/${id}`);
-};
-
-export const updateIssueStatus = (id, status) => {
-  return request(`/issues/${id}/status`, 'PUT', { status });
-};
-
-export const updateIssuePriority = (id, priority) => {
-  return request(`/issues/${id}/priority`, 'PUT', { priority });
-};
-
-export const assignIssueToWorker = (id, assigned_to) => {
+export const assignIssueToWorker = async (id, assigned_to) => {
   return request(`/issues/${id}/assign`, 'PUT', { assigned_to });
 };
 
-export const closeIssue = (id) => {
+export const updateIssueStatus = async (id, status) => {
+  return request(`/issues/${id}/status`, 'PUT', { status });
+};
+
+export const updateIssuePriority = async (id, priority) => {
+  return request(`/issues/${id}/priority`, 'PUT', { priority });
+};
+
+export const closeIssue = async (id) => {
   return request(`/issues/${id}/close`, 'PUT');
 };
 
-export const deleteIssue = (id) => {
+export const deleteIssue = async (id) => {
   return request(`/issues/${id}`, 'DELETE');
 };
 
-// ── ISSUES: Worker ────────────────────────────────────────
-export const getAssignedIssues = () => {
+export const getWorkers = async () => {
+  return request('/manager/workers');
+};
+
+export const updateWorkerStatus = async (id, is_active) => {
+  return request(`/manager/workers/${id}/status`, 'PUT', { is_active });
+};
+
+// WORKER
+export const getAssignedIssues = async () => {
   return request('/issues/assigned/my');
 };
 
-export const addComment = (id, comment_text) => {
+export const addComment = async (id, comment_text) => {
   return request(`/issues/${id}/comments`, 'POST', { comment_text });
 };
 
-// ── PHOTO UPLOAD ──────────────────────────────────────────
+export const uploadCompletionPhoto = async (issueId, imageUri, imageMimeType) => {
+  return uploadPhoto(`/issues/${issueId}/photo`, imageUri, imageMimeType);
+};
+
+// ADMIN
+export const getAdminUsers = async () => {
+  return request('/admin/users');
+};
+
+export const updateAdminUserStatus = async (userId, is_active) => {
+  return request(`/admin/users/${userId}/status`, 'PUT', { is_active });
+};
+
+// NOTIFICATIONS
+export const getMyNotifications = async () => {
+  return request('/issues/notifications/my');
+};
+
+export const markNotificationAsRead = async (notificationId) => {
+  return request(`/issues/notifications/${notificationId}/read`, 'PUT');
+};
+
+// UPLOAD HELPERS
 export const uploadPhoto = async (
   endpoint,
   imageUri,
@@ -232,7 +272,12 @@ export const uploadPhoto = async (
 ) => {
   const token = await getToken();
 
+  if (!imageUri) {
+    throw new Error('No image selected');
+  }
+
   const formData = new FormData();
+
   formData.append('photo', {
     uri: imageUri,
     type: imageMimeType || 'image/jpeg',
@@ -266,34 +311,27 @@ export const uploadPhoto = async (
     }
 
     return data;
-  } catch (err) {
-    if (
-      err.message === 'Network request failed' ||
-      err.name === 'TypeError' ||
-      String(err.message).includes('Failed to fetch')
-    ) {
-      throw new Error(
-        `Upload failed because frontend cannot reach backend at ${BASE_URL}. Check backend, Wi-Fi, and LAPTOP_IP.`
-      );
-    }
-
-    throw err;
+  } catch (error) {
+    handleNetworkError(error);
   }
 };
 
 export const uploadIssueWithPhoto = async (
   formFields,
   imageUri,
-  imageMimeType
+  imageMimeType = 'image/jpeg'
 ) => {
   const token = await getToken();
 
   const formData = new FormData();
 
-  formData.append('title', formFields.title);
-  formData.append('description', formFields.description);
-  formData.append('location_id', String(formFields.location_id));
-  formData.append('category_id', String(formFields.category_id));
+  if (formFields?.title) {
+    formData.append('title', formFields.title);
+  }
+
+  formData.append('description', formFields.description || '');
+  formData.append('location_id', String(formFields.location_id || ''));
+  formData.append('category_id', String(formFields.category_id || ''));
 
   if (imageUri) {
     formData.append('photo', {
@@ -303,76 +341,46 @@ export const uploadIssueWithPhoto = async (
     });
   }
 
-  const response = await fetch(`${BASE_URL}/issues`, {
-    method: 'POST',
-    headers: {
-      Accept: 'application/json',
-      Authorization: token ? `Bearer ${token}` : '',
-    },
-    body: formData,
-  });
+  try {
+    const response = await fetch(`${BASE_URL}/issues`, {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        Authorization: token ? `Bearer ${token}` : '',
+      },
+      body: formData,
+    });
 
-  const data = await safeJson(response);
+    const data = await safeJson(response);
 
-  console.log('[API-UPLOAD] POST /issues', {
-    status: response.status,
-    ok: response.ok,
-    data,
-  });
+    console.log('[API-UPLOAD] POST /issues', {
+      status: response.status,
+      ok: response.ok,
+      data,
+    });
 
-  if (!response.ok) {
-    if (response.status === 401) {
-      await clearAuth();
+    if (!response.ok) {
+      if (response.status === 401) {
+        await clearAuth();
+      }
+
+      throw new Error(getErrorMessage(data, 'Failed to submit issue'));
     }
 
-    throw new Error(getErrorMessage(data, 'Failed to submit issue'));
+    return data;
+  } catch (error) {
+    handleNetworkError(error);
   }
-
-  return data;
 };
 
-export const uploadCompletionPhoto = async (issueId, imageUri, imageMimeType) => {
-  return uploadPhoto(`/issues/${issueId}/photo`, imageUri, imageMimeType);
-};
-
-// ── WORKERS: Facility Manager ─────────────────────────────
-export const getWorkers = async () => {
-  return request('/manager/workers');
-};
-
-export const updateWorkerStatus = (id, is_active) => {
-  return request(`/manager/workers/${id}/status`, 'PUT', { is_active });
-};
-
-// ── ADMIN ─────────────────────────────────────────────────
-export const getAdminUsers = async () => {
-  return request('/admin/users');
-};
-
-export const updateAdminUserStatus = async (userId, is_active) => {
-  return request(`/admin/users/${userId}/status`, 'PUT', {
-    is_active,
-    status: is_active ? 'active' : 'inactive',
-  });
-};
-
-// ── NOTIFICATIONS ─────────────────────────────────────────
-export const getMyNotifications = async () => {
-  return request('/issues/notifications/my');
-};
-
-export const markNotificationAsRead = async (notificationId) => {
-  return request(`/issues/notifications/${notificationId}/read`, 'PUT');
-};
-
-// ── STATIC LOOKUPS USED BY COMMUNITY MEMBER SUBMISSION ──
-// These should match backend/database seed IDs.
+// Fallback lists only. Screens should prefer getCategories/getLocations.
 export const CATEGORIES = [
   { category_id: 1, category_name: 'Electrical' },
   { category_id: 2, category_name: 'Plumbing' },
-  { category_id: 3, category_name: 'Furniture' },
-  { category_id: 4, category_name: 'Cleaning' },
+  { category_id: 3, category_name: 'Cleaning' },
+  { category_id: 4, category_name: 'Furniture' },
   { category_id: 5, category_name: 'Air Conditioning' },
+  { category_id: 6, category_name: 'Safety' },
 ];
 
 export const LOCATIONS = [
@@ -380,35 +388,48 @@ export const LOCATIONS = [
     location_id: 1,
     building_name: 'Building A',
     floor: '1',
-    room_number: '101',
+    room_number: 'A101',
     area: 'North Wing',
+    location_name: 'Building A - 1 - A101 - North Wing',
   },
   {
     location_id: 2,
     building_name: 'Building B',
     floor: '2',
-    room_number: '205',
+    room_number: 'B205',
     area: 'South Wing',
+    location_name: 'Building B - 2 - B205 - South Wing',
   },
   {
     location_id: 3,
     building_name: 'Library',
     floor: 'Ground',
-    room_number: 'L1',
-    area: 'Main Area',
+    room_number: 'L-G01',
+    area: 'Main Reading Area',
+    location_name: 'Library - Ground - L-G01 - Main Reading Area',
   },
   {
     location_id: 4,
     building_name: 'Cafeteria',
     floor: 'Ground',
-    room_number: 'C1',
+    room_number: 'C-G01',
     area: 'Food Court',
+    location_name: 'Cafeteria - Ground - C-G01 - Food Court',
   },
   {
     location_id: 5,
     building_name: 'Parking Area',
-    floor: 'Outdoor',
+    floor: '',
     room_number: 'P1',
     area: 'East Side',
+    location_name: 'Parking Area - P1 - East Side',
+  },
+  {
+    location_id: 6,
+    building_name: 'Building C',
+    floor: '3',
+    room_number: 'C303',
+    area: 'West Wing',
+    location_name: 'Building C - 3 - C303 - West Wing',
   },
 ];

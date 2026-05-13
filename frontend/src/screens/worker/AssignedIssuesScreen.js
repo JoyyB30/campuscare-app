@@ -17,7 +17,7 @@ import {
   getAssignedIssues,
   getUser,
   clearAuth,
-} from '../services/api';
+} from '../../services/api';
 
 const C = {
   navy: '#0B1F3A',
@@ -133,8 +133,10 @@ export default function AssignedIssuesScreen({ navigation }) {
               <Text style={styles.iconText}>{icon}</Text>
             </View>
 
-            <View style={{ flex: 1 }}>
-              <Text style={styles.cardTitle}>{item.title || category}</Text>
+            <View style={styles.titleBlock}>
+              <Text style={styles.cardTitle}>
+                {item.title || category}
+              </Text>
               <Text style={styles.ticketId}>Ticket #{id}</Text>
             </View>
           </View>
@@ -146,13 +148,18 @@ export default function AssignedIssuesScreen({ navigation }) {
           </View>
         </View>
 
-        <Text style={styles.description} numberOfLines={2}>
+        <Text style={styles.description}>
           {item.description || 'No description provided.'}
         </Text>
 
         <View style={styles.footer}>
-          <Text style={styles.meta}>📍 {item.location || item.location_name || 'Campus location'}</Text>
-          <Text style={styles.meta}>🏷 {(item.priority || 'medium').toUpperCase()}</Text>
+          <Text style={styles.meta}>
+            📍 {item.location || item.location_name || 'Campus location'}
+          </Text>
+
+          <Text style={styles.meta}>
+            🏷 {(item.priority || 'medium').toUpperCase()}
+          </Text>
         </View>
       </TouchableOpacity>
     );
@@ -308,7 +315,13 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
   welcomeSmall: { color: 'rgba(255,255,255,0.72)', fontSize: 18 },
-  welcomeName: { color: '#fff', fontSize: 26, fontWeight: '900', marginTop: 3 },
+  welcomeName: {
+    color: '#fff',
+    fontSize: 26,
+    fontWeight: '900',
+    marginTop: 3,
+    flexWrap: 'wrap',
+  },
   statsRow: {
     flexDirection: 'row',
     gap: 10,
@@ -348,8 +361,19 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 2,
   },
-  cardTop: { flexDirection: 'row', justifyContent: 'space-between', gap: 12 },
-  cardLeft: { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 },
+  cardTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: 10,
+  },
+  cardLeft: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    flex: 1,
+    minWidth: 0,
+  },
   iconBox: {
     width: 46,
     height: 46,
@@ -359,17 +383,44 @@ const styles = StyleSheet.create({
     backgroundColor: '#F8FAFC',
   },
   iconText: { fontSize: 22 },
-  cardTitle: { color: C.navy, fontWeight: '900', fontSize: 15 },
-  ticketId: { color: C.slate, fontWeight: '700', marginTop: 3 },
+  titleBlock: {
+    flex: 1,
+    minWidth: 0,
+  },
+  cardTitle: {
+    color: C.navy,
+    fontWeight: '900',
+    fontSize: 15,
+    lineHeight: 20,
+    flexShrink: 1,
+    flexWrap: 'wrap',
+  },
+  ticketId: {
+    color: C.slate,
+    fontWeight: '700',
+    marginTop: 3,
+  },
   statusPill: {
     borderWidth: 1,
     borderRadius: 16,
-    paddingHorizontal: 10,
+    paddingHorizontal: 9,
     paddingVertical: 6,
     alignSelf: 'flex-start',
+    flexShrink: 0,
+    maxWidth: 145,
   },
-  statusText: { fontWeight: '900', fontSize: 12 },
-  description: { color: C.slate, marginTop: 14, lineHeight: 20 },
+  statusText: {
+    fontWeight: '900',
+    fontSize: 12,
+    flexWrap: 'wrap',
+    textAlign: 'center',
+  },
+  description: {
+    color: C.slate,
+    marginTop: 14,
+    lineHeight: 20,
+    flexWrap: 'wrap',
+  },
   footer: {
     borderTopWidth: 1,
     borderTopColor: '#EEF2F7',
@@ -377,8 +428,15 @@ const styles = StyleSheet.create({
     paddingTop: 10,
     flexDirection: 'row',
     justifyContent: 'space-between',
+    gap: 10,
+    flexWrap: 'wrap',
   },
-  meta: { color: C.slate, fontSize: 12, fontWeight: '700' },
+  meta: {
+    color: C.slate,
+    fontSize: 12,
+    fontWeight: '700',
+    flexShrink: 1,
+  },
   empty: { alignItems: 'center', paddingTop: 60, paddingHorizontal: 26 },
   emptyIcon: { fontSize: 54 },
   emptyTitle: { color: C.navy, fontSize: 22, fontWeight: '900', marginTop: 10 },

@@ -17,7 +17,7 @@ import {
   getAdminUsers,
   updateAdminUserStatus,
   clearAuth,
-} from '../services/api';
+} from '../../services/api';
 
 const C = {
   navy: '#0B1F3A',

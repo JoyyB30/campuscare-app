@@ -22,7 +22,7 @@ import {
   updateWorkerStatus,
   getMyNotifications,
   markNotificationAsRead,
-} from '../services/api';
+} from '../../services/api';
 
 const C = {
   navy: '#0B1F3A',
@@ -177,7 +177,7 @@ export default function FMDashboardScreen({ route, navigation }) {
 
   const loadUser = async () => {
     const u = await getUser();
-    if (u) setUsername(u.username || 'Manager');
+    if (u) setUsername(u.username || u.name || 'Manager');
   };
 
   const loadAllData = async (showMainLoader = true) => {
@@ -289,7 +289,13 @@ export default function FMDashboardScreen({ route, navigation }) {
         const category = String(getCategoryName(i)).toLowerCase();
         const priority = String(i.priority || '').toLowerCase();
         const status = String(i.status || '').toLowerCase();
-        const worker = String(i.assigned_worker || i.assigned_worker_username || i.worker_username || '').toLowerCase();
+        const worker = String(
+          i.assigned_worker ||
+          i.assigned_worker_username ||
+          i.assigned_worker_name ||
+          i.worker_username ||
+          ''
+        ).toLowerCase();
 
         return (
           id.includes(keyword) ||
@@ -316,7 +322,7 @@ export default function FMDashboardScreen({ route, navigation }) {
         style: 'destructive',
         onPress: async () => {
           await clearAuth();
-          navigation.replace('Login');
+          navigation.getParent()?.replace('Login');
         },
       },
     ]);
@@ -578,7 +584,7 @@ export default function FMDashboardScreen({ route, navigation }) {
 
         <View style={styles.cardDetails}>
           <Text style={styles.detailLine}>
-            👷 Assigned worker: {item.assigned_worker || item.assigned_worker_username || item.worker_username || 'Not assigned'}
+            👷 Assigned worker: {item.assigned_worker || item.assigned_worker_username || item.assigned_worker_name || item.worker_username || 'Not assigned'}
           </Text>
 
           <Text style={styles.detailLine}>

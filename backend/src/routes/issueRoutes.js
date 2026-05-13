@@ -5,6 +5,19 @@ const upload = require('../middleware/uploadMiddleware');
 const issueController = require('../controllers/issueController');
 const { verifyToken, authorizeRoles } = require('../middleware/authMiddleware');
 
+// Metadata for frontend dropdowns
+router.get(
+  '/meta/categories',
+  verifyToken,
+  issueController.getCategories
+);
+
+router.get(
+  '/meta/locations',
+  verifyToken,
+  issueController.getLocations
+);
+
 // Community Member: submit issue
 router.post(
   '/',
@@ -15,7 +28,6 @@ router.post(
 );
 
 // Facility Manager: view all issues, with optional filters
-// Example: /api/issues?status=pending&priority=high
 router.get(
   '/',
   verifyToken,
