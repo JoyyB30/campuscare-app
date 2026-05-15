@@ -154,7 +154,25 @@ campuscare-app/
 │
 └── README.md
 ```
+## Backend (/backend)
+src/controllers/: Contains the business logic for each route (e.g., creating issues, authenticating users).
 
+src/middleware/: Handles security functions, specifically the JWT verification to protect private routes.
+
+src/routes/: Defines the API endpoint paths and connects them to the appropriate controllers.
+
+src/db/: Manages the connection pool and configurations for the Supabase PostgreSQL database.
+
+index.js: The main entry point that initializes the Express server.
+
+## Frontend (/frontend)
+src/screens/: Houses all UI views, organized by function (e.g., Login, Issue Tracking, Role Dashboards).
+
+src/navigation/: Defines the navigation structure, including separate navigators for each user role (Admin, FM, CM, Worker).
+
+src/services/: Contains api.js, which serves as a centralized hub for all backend communication logic.
+
+App.js: The root file that initializes the application and the main Navigation Container.
 ---
 
 ## API Endpoints
