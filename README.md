@@ -1,4 +1,5 @@
 # CampusCare — Smart Facility Management System
+Report • Track • Resolve
 
 CampusCare is a mobile application that allows university community members to report facility issues, and enables facility managers and workers to manage and resolve them efficiently.
 
@@ -65,7 +66,7 @@ CLOUDINARY_API_SECRET=l6g667vwxME7z3QYeVUOsgyw-IQ
 ### 5. Start the backend server
 
 ```
-npm run dev
+node index.js
 ```
 
 The server will start on `http://localhost:5000`
@@ -106,7 +107,7 @@ const BASE_URL = 'http://192.168.1.55:5000/api';
 ### 4. Start the frontend
 
 ```
-npm start
+npx expo start
 ```
 
 ### 5. Open on your phone
