@@ -173,6 +173,7 @@ src/navigation/: Defines the navigation structure, including separate navigators
 src/services/: Contains api.js, which serves as a centralized hub for all backend communication logic.
 
 App.js: The root file that initializes the application and the main Navigation Container.
+
 ---
 
 ## API Endpoints
