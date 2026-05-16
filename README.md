@@ -14,7 +14,7 @@ CampusCare is a mobile application that allows university community members to r
 | Malak Fawzy | Database / Backend |
 | Maryam Basim | Frontend |
 | Mohamed Adel | Frontend |
-| Adam Sherbiny | Frontend / Backend |
+| Adam Sherbiny | Frontend |
 
 ---
 
